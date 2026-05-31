@@ -23,14 +23,182 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Stock Scanner Dashboard")
-st.write(
-    "Page 1: Stock Scanner | Page 2: Backtest Strategy | Page 3: Options Watchlist | Page 4: Technical Chart + Smart Money Flow"
+# ============================================================
+# Professional Finance Dashboard Theme
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+    /* Main app background */
+    .stApp {
+        background: linear-gradient(135deg, #020617 0%, #0B1220 42%, #111827 100%);
+        color: #E5E7EB;
+    }
+
+    /* Main content spacing */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1500px;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #020617 0%, #0F172A 100%);
+        border-right: 1px solid #1F2937;
+    }
+
+    section[data-testid="stSidebar"] * {
+        color: #E5E7EB;
+    }
+
+    /* Typography */
+    h1 {
+        color: #F8FAFC;
+        font-weight: 900;
+        letter-spacing: -0.045em;
+        font-size: 2.45rem;
+        margin-bottom: 0.2rem;
+    }
+
+    h2, h3 {
+        color: #E5E7EB;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+    }
+
+    p, label, span, div {
+        font-family: "Inter", "Segoe UI", "Roboto", sans-serif;
+    }
+
+    /* Metric cards */
+    div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, rgba(17, 24, 39, 0.98) 0%, rgba(30, 41, 59, 0.92) 100%);
+        border: 1px solid #334155;
+        padding: 16px 18px;
+        border-radius: 18px;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.28);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: #94A3B8;
+        font-weight: 700;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: #F8FAFC;
+        font-weight: 900;
+    }
+
+    /* Buttons */
+    .stButton > button {
+        background: linear-gradient(90deg, #2563EB, #06B6D4);
+        color: #FFFFFF;
+        border: 0px solid transparent;
+        border-radius: 14px;
+        padding: 0.68rem 1.25rem;
+        font-weight: 800;
+        box-shadow: 0 10px 24px rgba(37, 99, 235, 0.34);
+        transition: all 0.2s ease-in-out;
+    }
+
+    .stButton > button:hover {
+        background: linear-gradient(90deg, #1D4ED8, #0891B2);
+        color: #FFFFFF;
+        border: 0px solid transparent;
+        transform: translateY(-1px);
+    }
+
+    /* Dataframe shell */
+    div[data-testid="stDataFrame"] {
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid #334155;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.24);
+    }
+
+    /* Alerts */
+    div[data-testid="stAlert"] {
+        border-radius: 16px;
+        border: 1px solid #334155;
+    }
+
+    /* Inputs */
+    .stTextInput input, .stTextArea textarea {
+        background-color: #0F172A;
+        color: #E5E7EB;
+        border: 1px solid #334155;
+        border-radius: 12px;
+    }
+
+    .stNumberInput input {
+        background-color: #0F172A;
+        color: #E5E7EB;
+        border: 1px solid #334155;
+        border-radius: 12px;
+    }
+
+    .stSelectbox div[data-baseweb="select"] {
+        background-color: #0F172A;
+        border-radius: 12px;
+        border-color: #334155;
+    }
+
+    /* Tabs/radio polish */
+    div[role="radiogroup"] label {
+        background-color: rgba(15, 23, 42, 0.55);
+        border-radius: 10px;
+        padding: 4px 8px;
+    }
+
+    /* Download buttons */
+    .stDownloadButton > button {
+        background: linear-gradient(90deg, #0F766E, #14B8A6);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        font-weight: 800;
+    }
+
+    /* Hide Streamlit footer */
+    footer {
+        visibility: hidden;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(15, 23, 42, 0.82));
+        border: 1px solid #334155;
+        border-radius: 22px;
+        padding: 24px 28px;
+        margin-bottom: 20px;
+        box-shadow: 0 18px 42px rgba(0,0,0,0.30);
+    ">
+        <div style="color:#38BDF8; font-size:13px; font-weight:800; letter-spacing:0.18em; text-transform:uppercase;">
+            Market Intelligence Dashboard
+        </div>
+        <div style="color:#F8FAFC; font-size:38px; font-weight:950; letter-spacing:-0.045em; margin-top:6px;">
+            Market Beast Pro Scanner
+        </div>
+        <div style="color:#94A3B8; font-size:16px; margin-top:8px; max-width:980px;">
+            Multi-market stock scanner for US, Malaysia, and Singapore markets — powered by trend, momentum,
+            volume, smart money flow, capital flow, backtesting, risk/reward analysis, and US options screening.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.warning(
-    "This dashboard is for education and screening only. It is not financial advice. "
-    "No indicator can guarantee future price movement."
+    "Education and screening only. This is not financial advice. "
+    "No indicator, score, model, or scanner can guarantee future price movement."
 )
 
 st.caption(
@@ -1747,6 +1915,151 @@ def dataframe_to_excel(df, sheet_name):
 
 
 # ============================================================
+# Display Styling Helpers
+# ============================================================
+
+DISPLAY_COLUMN_RENAME = {
+    "Buy_Sell_Safety": "Buy/Sell Safety",
+    "Practical_Rank_Score": "Practical Score",
+    "Smart_Money_Signal": "Smart Money Signal",
+    "Smart_Money_Flow_Score": "Smart Money Score",
+    "Buy_Sell_Pressure": "Buy/Sell Pressure",
+    "Capital_Flow_Score": "Capital Flow Score",
+    "Capital_Flow_Signal": "Capital Flow",
+    "Relative_Volume": "Rel Volume",
+    "Relative_Strength": "Rel Strength",
+    "Risk_Reward": "Risk/Reward",
+    "Upside_%": "Upside %",
+    "Risk_%": "Risk %",
+    "MACD_Hist": "MACD Hist",
+    "MACD_Hist_Change": "MACD Hist Change",
+    "Money_Flow_Volume": "Money Flow Volume",
+    "Early_Signal": "Early Signal",
+    "Final View": "Final View",
+}
+
+
+def make_display_df(df):
+    """Rename technical column names into cleaner dashboard labels."""
+    if df is None or df.empty:
+        return df
+    return df.rename(columns=DISPLAY_COLUMN_RENAME)
+
+
+def style_scanner_table(df):
+    """Professional color styling for scanner result table."""
+    if df is None or df.empty:
+        return df
+
+    def color_safety(val):
+        val = str(val)
+        if val == "Safer Buy Setup":
+            return "background-color: #14532D; color: #DCFCE7; font-weight: 900;"
+        if val == "Watch Buy Setup":
+            return "background-color: #1E3A8A; color: #DBEAFE; font-weight: 900;"
+        if val == "Too Hot / Avoid Chasing":
+            return "background-color: #78350F; color: #FEF3C7; font-weight: 900;"
+        if val == "Sell / Avoid Warning":
+            return "background-color: #7F1D1D; color: #FEE2E2; font-weight: 900;"
+        return "background-color: #374151; color: #E5E7EB;"
+
+    def color_score(val):
+        try:
+            val = float(val)
+        except Exception:
+            return ""
+
+        if val >= 30:
+            return "color: #22C55E; font-weight: 900;"
+        if val >= 20:
+            return "color: #4ADE80; font-weight: 900;"
+        if val >= 12:
+            return "color: #38BDF8; font-weight: 900;"
+        if val >= 6:
+            return "color: #F59E0B; font-weight: 900;"
+        return "color: #EF4444; font-weight: 900;"
+
+    def color_risk_reward(val):
+        try:
+            val = float(val)
+        except Exception:
+            return ""
+
+        if val >= 3:
+            return "color: #22C55E; font-weight: 900;"
+        if val >= 2:
+            return "color: #4ADE80; font-weight: 800;"
+        if val >= 1:
+            return "color: #F59E0B; font-weight: 800;"
+        return "color: #EF4444; font-weight: 800;"
+
+    def color_money_signal(val):
+        val = str(val)
+        if "Strong Buying" in val or val == "Buying Pressure":
+            return "background-color: #064E3B; color: #D1FAE5; font-weight: 900;"
+        if "Mild Buying" in val:
+            return "background-color: #065F46; color: #ECFDF5; font-weight: 800;"
+        if "Strong Selling" in val or val == "Selling Pressure":
+            return "background-color: #7F1D1D; color: #FEE2E2; font-weight: 900;"
+        if "Mild Selling" in val:
+            return "background-color: #991B1B; color: #FEE2E2; font-weight: 800;"
+        return "background-color: #334155; color: #E5E7EB;"
+
+    styled = df.style
+
+    if "Buy/Sell Safety" in df.columns:
+        styled = styled.map(color_safety, subset=["Buy/Sell Safety"])
+
+    score_cols = [c for c in ["Score", "Practical Score"] if c in df.columns]
+    if score_cols:
+        styled = styled.map(color_score, subset=score_cols)
+
+    if "Risk/Reward" in df.columns:
+        styled = styled.map(color_risk_reward, subset=["Risk/Reward"])
+
+    if "Smart Money Signal" in df.columns:
+        styled = styled.map(color_money_signal, subset=["Smart Money Signal"])
+
+    numeric_cols = [
+        c for c in df.columns
+        if c not in [
+            "Ticker", "Buy/Sell Safety", "Final View", "Smart Money Signal",
+            "Capital Flow", "Early Signal", "Practical_Notes", "Reasons"
+        ]
+    ]
+
+    format_dict = {}
+    for col in numeric_cols:
+        format_dict[col] = "{:,.2f}"
+
+    styled = styled.format(format_dict, na_rep="-")
+    return styled
+
+
+def render_section_header(title, subtitle=None):
+    """Reusable premium section header."""
+    subtitle_html = ""
+    if subtitle:
+        subtitle_html = f'<div style="color:#94A3B8; font-size:14px; margin-top:4px;">{subtitle}</div>'
+
+    st.markdown(
+        f"""
+        <div style="
+            background: rgba(15, 23, 42, 0.76);
+            border: 1px solid #334155;
+            border-radius: 18px;
+            padding: 16px 20px;
+            margin: 14px 0 18px 0;
+        ">
+            <div style="color:#F8FAFC; font-size:22px; font-weight:900; letter-spacing:-0.02em;">{title}</div>
+            {subtitle_html}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
 # Page 2 Backtest Functions
 # ============================================================
 
@@ -2271,8 +2584,19 @@ def plot_stock_chart(ticker, period="1y", data_source="Auto", market_name="US"):
 # Sidebar Main Navigation
 # ============================================================
 
+st.sidebar.markdown(
+    """
+    <div style="padding: 8px 0 12px 0;">
+        <div style="color:#38BDF8; font-size:12px; font-weight:900; letter-spacing:0.16em; text-transform:uppercase;">
+            Navigation
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 page = st.sidebar.radio(
-    "Choose Page",
+    "Choose Module",
     [
         "Page 1 - Stock Scanner",
         "Page 2 - Backtest Strategy",
@@ -2287,7 +2611,7 @@ page = st.sidebar.radio(
 # ============================================================
 
 if page == "Page 1 - Stock Scanner":
-    st.header("Page 1 - Stock Scanner")
+    render_section_header("Page 1 — Stock Scanner", "Screen US, Malaysia, and Singapore stocks using trend, volume, money flow, risk/reward, and practical ranking.")
 
     st.sidebar.header("Scanner Settings")
 
@@ -2617,7 +2941,14 @@ if page == "Page 1 - Stock Scanner":
             "The scanner/scoring logic is the same as KLCI 30 or Top 50; only the stock universe changes. "
             "It refreshes with market data cache, usually every 1 hour."
         )
-        st.dataframe(auto_active_df, use_container_width=True, height=260)
+        active_display_df = auto_active_df.rename(columns={
+            "Latest_Close": "Latest Close",
+            "Latest_Volume": "Latest Volume",
+            "Latest_Traded_Value": "Latest Traded Value",
+            "Relative_Volume": "Rel Volume",
+            "Price_Change_5D_%": "5D Change %"
+        })
+        st.dataframe(active_display_df, use_container_width=True, height=260)
 
         if stock_group == "KLCI 30 + Active Malaysia Stocks":
             active_count = len(auto_active_df)
@@ -2928,7 +3259,7 @@ if page == "Page 1 - Stock Scanner":
 # ============================================================
 
 if page == "Page 2 - Backtest Strategy":
-    st.header("Page 2 - Backtest Strategy")
+    render_section_header("Page 2 — Backtest Strategy", "Test whether your scanner-style signals worked historically using daily candles.")
 
     st.write(
         "This page backtests your scanner-style signal using daily candles. "
@@ -3046,7 +3377,7 @@ if page == "Page 2 - Backtest Strategy":
 # ============================================================
 
 if page == "Page 3 - Options Watchlist":
-    st.header("Page 3 - US Options Checklist")
+    render_section_header("Page 3 — US Options Checklist", "Screen US-listed options contracts by liquidity, spread, breakeven move, and open interest.")
 
     st.write(
         "This page is for **US-listed stock options only**. "
@@ -3471,7 +3802,7 @@ if page == "Page 3 - Options Watchlist":
 # ============================================================
 
 if page == "Page 4 - Technical Chart":
-    st.header("Page 4 - Technical Chart")
+    render_section_header("Page 4 — Technical Chart", "Visualize candlesticks, moving averages, Bollinger Bands, MACD, RSI, volume, and smart money flow.")
 
     st.write(
         "This page shows a visual technical chart with candlestick, MA20, MA50, MA200, "
