@@ -35,7 +35,7 @@ st.warning(
 
 st.caption(
     "Data sources with automatic fallback. US: Yahoo Finance, then Stooq, then Alpha Vantage. "
-    "Malaysia .KL: Yahoo Finance, then EODHD, then iTick, then Alpha Vantage. "
+    "Malaysia .KL: Yahoo Finance, then EODHD, then iTick, then Alpha Vantage. Singapore .SI: Yahoo Finance, then EODHD, then Alpha Vantage. "
     "Fallback providers require their own free API key in .streamlit/secrets.toml; "
     "without a key, that provider is skipped."
 )
@@ -136,6 +136,65 @@ MALAYSIA_BROAD_PRESET = list(dict.fromkeys(MALAYSIA_KLCI_30 + ACTIVE_MALAYSIA_ST
     "0092.KL",  # mTouche
 ]))
 
+# ============================================================
+# Singapore Stock Lists
+# Yahoo Finance uses .SI suffix for SGX stocks.
+# ============================================================
+
+SINGAPORE_STI_30 = [
+    "D05.SI",   # DBS
+    "O39.SI",   # OCBC
+    "U11.SI",   # UOB
+    "Z74.SI",   # Singtel
+    "C6L.SI",   # Singapore Airlines
+    "S68.SI",   # SGX
+    "C38U.SI",  # CapitaLand Integrated Commercial Trust
+    "A17U.SI",  # CapitaLand Ascendas REIT
+    "J36.SI",   # Jardine Matheson
+    "BN4.SI",   # Keppel
+    "F34.SI",   # Wilmar
+    "G13.SI",   # Genting Singapore
+    "H78.SI",   # Hongkong Land
+    "J69U.SI",  # Frasers Centrepoint Trust
+    "M44U.SI",  # Mapletree Logistics Trust
+    "ME8U.SI",  # Mapletree Industrial Trust
+    "N2IU.SI",  # Mapletree Pan Asia Commercial Trust
+    "S58.SI",   # SATS
+    "U14.SI",   # UOL
+    "Y92.SI",   # Thai Beverage
+    "C07.SI",   # Jardine Cycle & Carriage
+    "S63.SI",   # ST Engineering
+    "U96.SI",   # Sembcorp Industries
+    "V03.SI",   # Venture
+    "D01.SI",   # Dairy Farm / DFI Retail
+    "C09.SI",   # City Developments
+    "BS6.SI",   # Yangzijiang Shipbuilding
+    "BUOU.SI",  # Frasers Logistics & Commercial Trust
+    "AJBU.SI",  # Keppel DC REIT
+    "T82U.SI",  # Suntec REIT
+]
+
+ACTIVE_SINGAPORE_STOCKS = [
+    "D05.SI", "O39.SI", "U11.SI", "Z74.SI", "C6L.SI",
+    "S68.SI", "C38U.SI", "A17U.SI", "M44U.SI", "ME8U.SI",
+    "N2IU.SI", "S58.SI", "G13.SI", "F34.SI", "BN4.SI",
+    "S63.SI", "U96.SI", "V03.SI", "C09.SI", "BS6.SI",
+    "T82U.SI", "AJBU.SI", "BUOU.SI", "J69U.SI", "Y92.SI",
+    "5E2.SI", "AEM.SI", "AWX.SI", "BVA.SI", "C52.SI",
+]
+
+SINGAPORE_DEFAULT_WATCHLIST = [
+    "D05.SI", "O39.SI", "U11.SI", "Z74.SI", "C6L.SI",
+    "S68.SI", "C38U.SI", "A17U.SI", "M44U.SI", "ME8U.SI"
+]
+
+SINGAPORE_BROAD_PRESET = list(dict.fromkeys(SINGAPORE_STI_30 + ACTIVE_SINGAPORE_STOCKS + [
+    "AEM.SI", "BVA.SI", "5E2.SI", "C52.SI", "AWX.SI",
+    "NO4.SI", "M01.SI", "S08.SI", "T39.SI", "E5H.SI",
+    "U06.SI", "Q0X.SI", "K71U.SI", "KDCU.SI", "M44U.SI",
+]))
+
+
 
 # ============================================================
 # Auto-load universe functions
@@ -205,11 +264,16 @@ def get_auto_stock_list(market_name, auto_universe):
         if auto_universe == "S&P 500 + Nasdaq 100":
             tickers = list(dict.fromkeys(load_sp500_tickers() + load_nasdaq100_tickers()))
             return tickers if tickers else list(dict.fromkeys(US_TOP_50_STOCKS + ACTIVE_US_STOCKS))
-    else:
+    elif market_name == "Malaysia":
         if auto_universe == "Malaysia Broad Preset":
             return MALAYSIA_BROAD_PRESET
         if auto_universe == "KLCI 30 + Active + Broad Preset":
             return MALAYSIA_BROAD_PRESET
+    elif market_name == "Singapore":
+        if auto_universe == "Singapore Broad Preset":
+            return SINGAPORE_BROAD_PRESET
+        if auto_universe == "STI 30 + Active + Broad Preset":
+            return SINGAPORE_BROAD_PRESET
     return []
 
 
@@ -257,6 +321,10 @@ def calculate_auto_active_stocks(
             if market_name == "Malaysia":
                 if not normalized_ticker.endswith(".KL") and not normalized_ticker.startswith("^"):
                     normalized_ticker = f"{normalized_ticker}.KL"
+
+            if market_name == "Singapore":
+                if not normalized_ticker.endswith(".SI") and not normalized_ticker.startswith("^"):
+                    normalized_ticker = f"{normalized_ticker}.SI"
 
             df = get_data(
                 normalized_ticker,
@@ -504,6 +572,9 @@ def convert_to_eodhd_symbol(ticker, market_name):
     if ticker.endswith(".KL"):
         return ticker.replace(".KL", ".KLSE")
 
+    if ticker.endswith(".SI"):
+        return ticker.replace(".SI", ".SG")
+
     if market_name == "US":
         # EODHD expects e.g. AAPL.US ; class shares keep hyphen
         return f"{ticker}.US"
@@ -658,6 +729,8 @@ def convert_to_alphavantage_symbol(ticker, market_name):
         return None
     if ticker.endswith(".KL"):
         return ticker.replace(".KL", ".KLSE")
+    if ticker.endswith(".SI"):
+        return ticker
     if market_name == "US":
         return ticker
     return None
@@ -740,12 +813,20 @@ def get_data(ticker, period="2y", interval="1d", min_rows=120,
     Provider chains when source == "Auto":
         US:        Yahoo -> Stooq -> Alpha Vantage
         Malaysia:  Yahoo -> EODHD -> iTick -> Alpha Vantage
+        Singapore: Yahoo -> EODHD -> Alpha Vantage
+        Singapore: Yahoo -> EODHD -> Alpha Vantage
     """
     source = source or "Auto"
 
     # Auto-detect market if not provided.
     if market_name is None:
-        market_name = "Malaysia" if ticker.strip().upper().endswith(".KL") else "US"
+        ticker_upper = ticker.strip().upper()
+        if ticker_upper.endswith(".KL"):
+            market_name = "Malaysia"
+        elif ticker_upper.endswith(".SI"):
+            market_name = "Singapore"
+        else:
+            market_name = "US"
 
     # --- Forced single providers (kept for backward compatibility) ---
     if source == "Yahoo Finance":
@@ -775,7 +856,8 @@ def get_data(ticker, period="2y", interval="1d", min_rows=120,
             return df
         return get_data_alphavantage(ticker, period=period, interval=interval,
                                      min_rows=min_rows, market_name=market_name)
-    else:
+
+    if market_name == "Malaysia":
         df = get_data_eodhd(ticker, period=period, interval=interval,
                             min_rows=min_rows, market_name=market_name)
         if df is not None:
@@ -785,6 +867,16 @@ def get_data(ticker, period="2y", interval="1d", min_rows=120,
             return df
         return get_data_alphavantage(ticker, period=period, interval=interval,
                                      min_rows=min_rows, market_name=market_name)
+
+    if market_name == "Singapore":
+        df = get_data_eodhd(ticker, period=period, interval=interval,
+                            min_rows=min_rows, market_name=market_name)
+        if df is not None:
+            return df
+        return get_data_alphavantage(ticker, period=period, interval=interval,
+                                     min_rows=min_rows, market_name=market_name)
+
+    return None
 
 
 def add_macd(df):
@@ -1042,12 +1134,17 @@ def get_analyst_target(ticker):
 def get_benchmark_data(market_name, period="2y", min_rows=120):
     """
     Get benchmark indicator data with fallback.
-    Malaysia primary benchmark is ^KLSE. If yfinance fails, fallback to liquid banks as proxies.
+    Malaysia primary benchmark is ^KLSE. Singapore primary benchmark is ^STI.
+    If index data fails, fallback to large liquid bank/ETF proxies.
     """
     if market_name == "US":
         candidates = ["SPY"]
-    else:
+    elif market_name == "Malaysia":
         candidates = ["^KLSE", "1155.KL", "1023.KL", "1295.KL"]
+    elif market_name == "Singapore":
+        candidates = ["^STI", "ES3.SI", "D05.SI", "O39.SI", "U11.SI"]
+    else:
+        candidates = ["SPY"]
 
     for ticker in candidates:
         raw = get_data(ticker, period=period, min_rows=min_rows, market_name=market_name)
@@ -1092,7 +1189,7 @@ def get_market_trend(market_name):
         else:
             return "Mixed"
 
-    benchmark_used, benchmark_df = get_benchmark_data("Malaysia", period="2y", min_rows=120)
+    benchmark_used, benchmark_df = get_benchmark_data(market_name, period="2y", min_rows=120)
 
     if benchmark_df is None:
         return "Unknown"
@@ -1347,12 +1444,18 @@ def analyse_stock(ticker, benchmark_df, market_name):
         rsi_high = 70
         adx_min = 25
         benchmark_name = "SPY"
-    else:
+    elif market_name == "Malaysia":
         volume_multiplier = 1.2
         rsi_low = 40
         rsi_high = 65
         adx_min = 20
         benchmark_name = "KLCI"
+    else:
+        volume_multiplier = 1.2
+        rsi_low = 40
+        rsi_high = 65
+        adx_min = 20
+        benchmark_name = "STI"
 
     if close > ma200:
         score += 2
@@ -1486,7 +1589,7 @@ def analyse_stock(ticker, benchmark_df, market_name):
 
     target_mean, target_high, target_low = get_analyst_target(ticker)
 
-    price_decimal = 3 if market_name == "Malaysia" else 2
+    price_decimal = 3 if market_name in ["Malaysia", "Singapore"] else 2
 
     return {
         "Ticker": ticker,
@@ -1560,11 +1663,16 @@ def calculate_practical_rank(row, market_name):
         rsi_high = 70
         adx_min = 25
         benchmark_name = "SPY"
-    else:
+    elif market_name == "Malaysia":
         rsi_low = 40
         rsi_high = 65
         adx_min = 20
         benchmark_name = "KLCI"
+    else:
+        rsi_low = 40
+        rsi_high = 65
+        adx_min = 20
+        benchmark_name = "STI"
 
     practical_score += score
 
@@ -1661,11 +1769,11 @@ def backtest_strategy(
     if df is None or len(df) < 80:
         return None, None, f"Not enough indicator data for {ticker}."
 
-    if market_name == "Malaysia":
-        benchmark_used, benchmark_df = get_benchmark_data("Malaysia", period="5y", min_rows=120)
+    if market_name in ["Malaysia", "Singapore"]:
+        benchmark_used, benchmark_df = get_benchmark_data(market_name, period="5y", min_rows=120)
 
         if benchmark_df is None or len(benchmark_df) < 80:
-            return None, None, "No Malaysia benchmark data available. Try again later or use US first."
+            return None, None, f"No {market_name} benchmark data available. Try again later or use US first."
     else:
         benchmark_used = benchmark_ticker
         benchmark_raw = get_data(benchmark_ticker, period="5y", min_rows=250)
@@ -1973,6 +2081,12 @@ def normalize_ticker_for_market(ticker, market_name):
         if not ticker.endswith(".KL"):
             ticker = f"{ticker}.KL"
 
+    if market_name == "Singapore":
+        if ticker.startswith("^"):
+            return ticker
+        if not ticker.endswith(".SI"):
+            ticker = f"{ticker}.SI"
+
     return ticker
 
 
@@ -1986,20 +2100,18 @@ def adjust_chart_config_for_market(ticker, market_name, period, data_source):
     config = get_chart_download_config(period).copy()
     note = None
 
-    if market_name == "Malaysia":
-        # Use the full Malaysia fallback chain (Yahoo -> EODHD -> iTick -> Alpha Vantage)
-        # unless the user explicitly forced a single provider.
-        if data_source in (None, "Auto", "Auto"):
+    if market_name in ["Malaysia", "Singapore"]:
+        if data_source in (None, "Auto"):
             data_source = "Auto"
 
-        # Bursa intraday data is often unavailable from yfinance.
+        # Bursa/SGX intraday data is often unavailable from yfinance.
         # Use daily candles instead, then filter to the selected display period.
         if period in ["1d", "1wk", "2wk"]:
             config["download_period"] = "2y"
             config["interval"] = "1d"
             config["lookback_days"] = {"1d": 7, "1wk": 14, "2wk": 21}[period]
             note = (
-                "Malaysia intraday data is often unavailable from Yahoo/yfinance. "
+                f"{market_name} intraday data is often unavailable from Yahoo/yfinance. "
                 f"Showing recent daily candles for {period} instead."
             )
 
@@ -2181,7 +2293,7 @@ if page == "Page 1 - Stock Scanner":
 
     market_name = st.sidebar.radio(
         "Choose Market",
-        ["US", "Malaysia"],
+        ["US", "Malaysia", "Singapore"],
         index=0
     )
 
@@ -2208,12 +2320,21 @@ if page == "Page 1 - Stock Scanner":
             "Auto Load",
             "Custom"
         ]
-    else:
+    elif market_name == "Malaysia":
         stock_group_options = [
             "Default Watchlist",
             "KLCI 30",
             "Active Malaysia Stocks",
             "KLCI 30 + Active Malaysia Stocks",
+            "Auto Load",
+            "Custom"
+        ]
+    else:
+        stock_group_options = [
+            "Default Watchlist",
+            "STI 30",
+            "Active Singapore Stocks",
+            "STI 30 + Active Singapore Stocks",
             "Auto Load",
             "Custom"
         ]
@@ -2227,7 +2348,7 @@ if page == "Page 1 - Stock Scanner":
     auto_active_lookback_days = 5
     auto_active_df = pd.DataFrame()
 
-    if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks"]:
+    if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"]:
         st.sidebar.subheader("Auto Active Settings")
 
         auto_active_top_n = st.sidebar.slider(
@@ -2340,7 +2461,7 @@ if page == "Page 1 - Stock Scanner":
                 if ticker.strip()
             ]
 
-    else:
+    elif market_name == "Malaysia":
         benchmark_ticker = "^KLSE"
         benchmark_label = "KLCI"
 
@@ -2415,7 +2536,81 @@ if page == "Page 1 - Stock Scanner":
                 if ticker.strip()
             ]
 
-    if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks"] and auto_active_df is not None and not auto_active_df.empty:
+    else:
+        benchmark_ticker = "^STI"
+        benchmark_label = "STI"
+
+        if stock_group == "Default Watchlist":
+            stock_list = SINGAPORE_DEFAULT_WATCHLIST
+        elif stock_group == "STI 30":
+            stock_list = SINGAPORE_STI_30
+        elif stock_group == "Active Singapore Stocks":
+            auto_base_list = SINGAPORE_BROAD_PRESET
+
+            with st.spinner("Finding active Singapore stocks by recent traded value..."):
+                stock_list, auto_active_df = calculate_auto_active_stocks(
+                    tickers=auto_base_list,
+                    market_name="Singapore",
+                    top_n=auto_active_top_n,
+                    lookback_days=auto_active_lookback_days,
+                    data_source=data_source
+                )
+
+            if not stock_list:
+                st.warning("Auto active ranking could not load. Falling back to fixed Active Singapore Stocks.")
+                stock_list = ACTIVE_SINGAPORE_STOCKS
+        elif stock_group == "STI 30 + Active Singapore Stocks":
+            sti_set = set([str(x).upper() for x in SINGAPORE_STI_30])
+
+            auto_base_list = [
+                t for t in SINGAPORE_BROAD_PRESET
+                if str(t).upper() not in sti_set
+            ]
+
+            with st.spinner("Finding additional active Singapore stocks by recent traded value..."):
+                auto_active_list, auto_active_df = calculate_auto_active_stocks(
+                    tickers=auto_base_list,
+                    market_name="Singapore",
+                    top_n=auto_active_top_n,
+                    lookback_days=auto_active_lookback_days,
+                    data_source=data_source
+                )
+
+            if not auto_active_list:
+                st.warning("Auto active ranking could not load. Falling back to fixed Active Singapore Stocks.")
+                auto_active_list = [
+                    t for t in ACTIVE_SINGAPORE_STOCKS
+                    if str(t).upper() not in sti_set
+                ]
+
+            stock_list = list(dict.fromkeys(SINGAPORE_STI_30 + auto_active_list))
+        elif stock_group == "Auto Load":
+            auto_universe = st.sidebar.selectbox(
+                "Auto-load Singapore universe",
+                ["Singapore Broad Preset", "STI 30 + Active + Broad Preset"],
+                index=0
+            )
+            max_scan = st.sidebar.number_input(
+                "Max stocks to scan",
+                min_value=10,
+                max_value=300,
+                value=80,
+                step=10
+            )
+            stock_list = limit_stock_list(get_auto_stock_list("Singapore", auto_universe), int(max_scan))
+            st.sidebar.info(f"Loaded {len(stock_list)} Singapore tickers from {auto_universe}.")
+        else:
+            custom_text = st.sidebar.text_area(
+                "Enter SGX tickers separated by comma",
+                "D05.SI,O39.SI,U11.SI,Z74.SI,C6L.SI"
+            )
+            stock_list = [
+                ticker.strip().upper()
+                for ticker in custom_text.split(",")
+                if ticker.strip()
+            ]
+
+    if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"] and auto_active_df is not None and not auto_active_df.empty:
         st.subheader("Active Stocks Selected")
         st.caption(
             "This dynamic active list is ranked by recent average traded value. "
@@ -2440,7 +2635,15 @@ if page == "Page 1 - Stock Scanner":
                 f"= {expected_unique} unique stocks. All stocks use the same scanner and scoring logic."
             )
 
-    default_selected_stocks = stock_list if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks"] else stock_list[:10]
+        if stock_group == "STI 30 + Active Singapore Stocks":
+            active_count = len(auto_active_df)
+            expected_unique = len(stock_list)
+            st.info(
+                f"STI 30 + Active tally: 30 STI stocks + {active_count} additional active non-STI stocks "
+                f"= {expected_unique} unique stocks. All stocks use the same scanner and scoring logic."
+            )
+
+    default_selected_stocks = stock_list if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"] else stock_list[:10]
 
     selected_stocks = st.sidebar.multiselect(
         "Select stocks to scan",
@@ -2452,7 +2655,7 @@ if page == "Page 1 - Stock Scanner":
         f"Universe unique tickers: {len(stock_list)} | Selected to scan: {len(selected_stocks)}"
     )
 
-    if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks"]:
+    if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"]:
         st.sidebar.caption(
             "Active list is dynamic. Analysis and scoring method stays the same; only ticker selection changes."
         )
@@ -2486,14 +2689,14 @@ if page == "Page 1 - Stock Scanner":
         if not selected_stocks:
             st.error("Please select at least one stock.")
         else:
-            if market_name == "Malaysia":
-                benchmark_used, benchmark_df = get_benchmark_data("Malaysia", period="2y", min_rows=120)
+            if market_name in ["Malaysia", "Singapore"]:
+                benchmark_used, benchmark_df = get_benchmark_data(market_name, period="2y", min_rows=120)
 
                 if benchmark_df is None:
-                    st.error("Malaysia benchmark data is not available. Cannot continue.")
+                    st.error(f"{market_name} benchmark data is not available. Cannot continue.")
                     st.stop()
 
-                st.info(f"Malaysia benchmark used: {benchmark_used}")
+                st.info(f"{market_name} benchmark used: {benchmark_used}")
             else:
                 benchmark_used = "SPY"
                 benchmark_raw = get_data("SPY", period="2y", min_rows=250)
@@ -2735,14 +2938,24 @@ if page == "Page 2 - Backtest Strategy":
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        market_name_bt = st.selectbox("Market", ["US", "Malaysia"])
+        market_name_bt = st.selectbox("Market", ["US", "Malaysia", "Singapore"])
 
     with col2:
-        default_ticker = "TSLA" if market_name_bt == "US" else "6947.KL"
+        if market_name_bt == "US":
+            default_ticker = "TSLA"
+        elif market_name_bt == "Malaysia":
+            default_ticker = "6947.KL"
+        else:
+            default_ticker = "D05.SI"
         ticker_bt = st.text_input("Ticker", default_ticker).upper()
 
     with col3:
-        benchmark_bt = "SPY" if market_name_bt == "US" else "^KLSE"
+        if market_name_bt == "US":
+            benchmark_bt = "SPY"
+        elif market_name_bt == "Malaysia":
+            benchmark_bt = "^KLSE"
+        else:
+            benchmark_bt = "^STI"
         st.write(f"Benchmark: **{benchmark_bt}**")
 
     col4, col5, col6, col7 = st.columns(4)
@@ -2837,7 +3050,7 @@ if page == "Page 3 - Options Watchlist":
 
     st.write(
         "This page is for **US-listed stock options only**. "
-        "Malaysia Bursa stocks do not use this Yahoo options chain format, so .KL tickers are blocked here."
+        "Malaysia Bursa and Singapore SGX stocks do not use this Yahoo US options chain format, so .KL and .SI tickers are blocked here."
     )
 
     st.warning(
@@ -2867,7 +3080,7 @@ if page == "Page 3 - Options Watchlist":
         ticker = clean_us_option_ticker(ticker)
         if not ticker:
             return False
-        if ticker.endswith(".KL"):
+        if ticker.endswith(".KL") or ticker.endswith(".SI"):
             return False
         if ticker.startswith("^"):
             return False
@@ -3231,7 +3444,7 @@ if page == "Page 3 - Options Watchlist":
     with st.expander("How to interpret Page 3"):
         st.write(
             """
-            **US only**: This page checks US-listed stock options. Bursa Malaysia .KL tickers are not supported here.
+            **US only**: This page checks US-listed stock options. Bursa Malaysia .KL and Singapore .SI tickers are not supported here.
 
             **Open Interest**: Number of outstanding contracts. Higher usually means better liquidity.
 
@@ -3263,16 +3476,21 @@ if page == "Page 4 - Technical Chart":
     st.write(
         "This page shows a visual technical chart with candlestick, MA20, MA50, MA200, "
         "Bollinger Bands, MACD, RSI, Relative Volume, and Smart Money Flow. "
-        "For Malaysia, daily candles are more reliable than intraday candles."
+        "For Malaysia and Singapore, daily candles are more reliable than intraday candles."
     )
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        chart_market = st.selectbox("Market", ["US", "Malaysia"], index=0)
+        chart_market = st.selectbox("Market", ["US", "Malaysia", "Singapore"], index=0)
 
     with col2:
-        default_chart_ticker = "TSLA" if chart_market == "US" else "6947.KL"
+        if chart_market == "US":
+            default_chart_ticker = "TSLA"
+        elif chart_market == "Malaysia":
+            default_chart_ticker = "6947.KL"
+        else:
+            default_chart_ticker = "D05.SI"
         chart_ticker = st.text_input("Enter ticker", default_chart_ticker).upper()
 
     with col3:
@@ -3291,6 +3509,14 @@ if page == "Page 4 - Technical Chart":
                 help="Auto = Yahoo, then EODHD, then iTick, then Alpha Vantage. "
                      "Single providers need their API key in secrets.toml."
             )
+        elif chart_market == "Singapore":
+            chart_data_source = st.selectbox(
+                "Data source",
+                ["Auto", "Yahoo Finance", "EODHD", "Alpha Vantage"],
+                index=0,
+                help="Auto = Yahoo, then EODHD, then Alpha Vantage. "
+                     "EODHD/Alpha Vantage need their API key in secrets.toml."
+            )
         else:
             chart_data_source = st.selectbox(
                 "Data source",
@@ -3302,6 +3528,9 @@ if page == "Page 4 - Technical Chart":
 
     if chart_market == "Malaysia":
         st.caption("Tip: you can type 6947 or 6947.KL. The app will convert Bursa tickers to .KL automatically.")
+
+    if chart_market == "Singapore":
+        st.caption("Tip: you can type D05 or D05.SI. The app will convert SGX tickers to .SI automatically.")
 
     if st.button("Show Technical Chart", type="primary"):
         plot_stock_chart(chart_ticker, chart_period, chart_data_source, chart_market)
