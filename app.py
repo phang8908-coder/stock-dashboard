@@ -2266,10 +2266,33 @@ DISPLAY_COLUMN_RENAME = {
 
 
 def make_display_df(df):
-    """Rename technical column names into cleaner dashboard labels."""
+    """
+    Rename technical column names into cleaner dashboard labels.
+
+    Streamlit freezes the dataframe index on the far-left side.
+    Therefore, we set the combined Stock column as the index so you can still
+    see the stock identity when scrolling horizontally.
+    """
     if df is None or df.empty:
         return df
-    return df.rename(columns=DISPLAY_COLUMN_RENAME)
+
+    display_df = df.rename(columns=DISPLAY_COLUMN_RENAME).copy()
+
+    if "Stock" not in display_df.columns:
+        if "Ticker" in display_df.columns and "Stock Name" in display_df.columns:
+            display_df["Stock"] = (
+                display_df["Ticker"].astype(str) + " | " + display_df["Stock Name"].astype(str)
+            )
+        elif "Ticker" in display_df.columns:
+            display_df["Stock"] = display_df["Ticker"].astype(str)
+
+    if "Stock" in display_df.columns:
+        display_df = display_df.set_index("Stock")
+        drop_cols = [col for col in ["Ticker", "Stock Name"] if col in display_df.columns]
+        if drop_cols:
+            display_df = display_df.drop(columns=drop_cols)
+
+    return display_df
 
 
 def style_scanner_table(df):
@@ -3251,7 +3274,27 @@ if page == "Page 1 - Stock Scanner":
             "Relative_Volume": "Rel Volume",
             "Price_Change_5D_%": "5D Change %"
         })
-        st.dataframe(active_display_df, use_container_width=True, height=260)
+
+        if "Stock" not in active_display_df.columns:
+            if "Ticker" in active_display_df.columns and "Stock Name" in active_display_df.columns:
+                active_display_df["Stock"] = (
+                    active_display_df["Ticker"].astype(str) + " | " + active_display_df["Stock Name"].astype(str)
+                )
+            elif "Ticker" in active_display_df.columns:
+                active_display_df["Stock"] = active_display_df["Ticker"].astype(str)
+
+        if "Stock" in active_display_df.columns:
+            active_display_df = active_display_df.set_index("Stock")
+            drop_cols = [col for col in ["Ticker", "Stock Name"] if col in active_display_df.columns]
+            if drop_cols:
+                active_display_df = active_display_df.drop(columns=drop_cols)
+
+        st.dataframe(
+            active_display_df,
+            use_container_width=True,
+            height=260,
+            hide_index=False
+        )
 
         if stock_group == "KLCI 30 + Active Malaysia Stocks":
             active_count = len(auto_active_df)
