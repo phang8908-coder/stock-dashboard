@@ -473,6 +473,160 @@ SINGAPORE_TICKER_ALIASES = {
 }
 
 
+
+STOCK_NAME_MAP = {
+    # US
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "NVDA": "Nvidia",
+    "AMZN": "Amazon",
+    "GOOGL": "Alphabet",
+    "GOOG": "Alphabet",
+    "META": "Meta Platforms",
+    "TSLA": "Tesla",
+    "AMD": "AMD",
+    "PLTR": "Palantir",
+    "COIN": "Coinbase",
+    "MSTR": "MicroStrategy",
+    "SMCI": "Super Micro Computer",
+    "NFLX": "Netflix",
+    "AVGO": "Broadcom",
+    "JPM": "JPMorgan Chase",
+    "V": "Visa",
+    "MA": "Mastercard",
+    "COST": "Costco",
+    "WMT": "Walmart",
+    "HD": "Home Depot",
+    "BAC": "Bank of America",
+    "CRM": "Salesforce",
+    "ORCL": "Oracle",
+    "QCOM": "Qualcomm",
+    "SOFI": "SoFi",
+    "HOOD": "Robinhood",
+    "RIVN": "Rivian",
+    "SHOP": "Shopify",
+    "UBER": "Uber",
+    "SNAP": "Snap",
+    "ASAN": "Asana",
+
+    # Malaysia
+    "1155.KL": "Maybank",
+    "1023.KL": "CIMB",
+    "1295.KL": "Public Bank",
+    "1066.KL": "RHB Bank",
+    "1015.KL": "AmBank",
+    "5819.KL": "Hong Leong Bank",
+    "1082.KL": "Hong Leong Financial Group",
+    "5258.KL": "BIMB",
+    "5347.KL": "Tenaga Nasional",
+    "6947.KL": "CelcomDigi",
+    "6012.KL": "Maxis",
+    "6888.KL": "Axiata",
+    "4863.KL": "Telekom Malaysia",
+    "6033.KL": "Petronas Gas",
+    "4677.KL": "YTL Corporation",
+    "6742.KL": "YTL Power",
+    "5285.KL": "Sime Darby Plantation",
+    "2445.KL": "KLK",
+    "1961.KL": "IOI Corporation",
+    "4065.KL": "PPB Group",
+    "7084.KL": "QL Resources",
+    "4707.KL": "Nestle Malaysia",
+    "3689.KL": "Fraser & Neave",
+    "5225.KL": "IHH Healthcare",
+    "7113.KL": "Top Glove",
+    "5168.KL": "Hartalega",
+    "7153.KL": "Kossan",
+    "7106.KL": "Supermax",
+    "4456.KL": "DNEX",
+    "0128.KL": "Frontken",
+    "0097.KL": "Vitrox",
+    "0166.KL": "Inari",
+    "3867.KL": "MPI",
+    "5286.KL": "Mi Technovation",
+    "0208.KL": "Greatech",
+    "5292.KL": "UWC",
+    "7160.KL": "Pentamaster",
+    "0181.KL": "Aemulus",
+    "0146.KL": "JF Technology",
+    "7202.KL": "D&O Green Technologies",
+    "7277.KL": "Dialog Group",
+    "5199.KL": "Hibiscus Petroleum",
+    "5210.KL": "Bumi Armada",
+    "5141.KL": "Dayang",
+    "7293.KL": "Yinson",
+    "3816.KL": "MISC",
+    "5398.KL": "Gamuda",
+    "5211.KL": "Sunway",
+    "3336.KL": "IJM",
+    "8664.KL": "SP Setia",
+    "5288.KL": "Sime Darby Property",
+    "1651.KL": "MRCB",
+    "8206.KL": "Eco World",
+    "8583.KL": "Mah Sing",
+    "5296.KL": "Mr DIY",
+    "4715.KL": "Genting Malaysia",
+    "3182.KL": "Genting",
+    "5014.KL": "Malaysia Airports",
+    "5099.KL": "Capital A",
+    "5031.KL": "TIME dotCom",
+    "8869.KL": "Press Metal",
+    "4197.KL": "Sime Darby",
+    "1818.KL": "Bursa Malaysia",
+    "5681.KL": "Petronas Dagangan",
+    "7277.KL": "Dialog Group",
+
+    # Singapore
+    "D05.SI": "DBS",
+    "O39.SI": "OCBC",
+    "U11.SI": "UOB",
+    "Z74.SI": "Singtel",
+    "C6L.SI": "Singapore Airlines",
+    "S68.SI": "SGX",
+    "C38U.SI": "CapitaLand Integrated Commercial Trust",
+    "A17U.SI": "CapitaLand Ascendas REIT",
+    "J36.SI": "Jardine Matheson",
+    "BN4.SI": "Keppel",
+    "F34.SI": "Wilmar",
+    "G13.SI": "Genting Singapore",
+    "H78.SI": "Hongkong Land",
+    "J69U.SI": "Frasers Centrepoint Trust",
+    "M44U.SI": "Mapletree Logistics Trust",
+    "ME8U.SI": "Mapletree Industrial Trust",
+    "N2IU.SI": "Mapletree Pan Asia Commercial Trust",
+    "S58.SI": "SATS",
+    "U14.SI": "UOL",
+    "Y92.SI": "Thai Beverage",
+    "C07.SI": "Jardine Cycle & Carriage",
+    "S63.SI": "ST Engineering",
+    "U96.SI": "Sembcorp Industries",
+    "V03.SI": "Venture",
+    "C09.SI": "City Developments",
+    "BS6.SI": "Yangzijiang Shipbuilding",
+    "BUOU.SI": "Frasers Logistics & Commercial Trust",
+    "AJBU.SI": "Keppel DC REIT",
+    "T82U.SI": "Suntec REIT",
+    "ES3.SI": "STI ETF",
+}
+
+
+def get_stock_name(ticker):
+    """Return readable stock name for dashboard display."""
+    ticker = str(ticker).strip().upper()
+
+    if ticker in STOCK_NAME_MAP:
+        return STOCK_NAME_MAP[ticker]
+
+    # Fallback for unknown Bursa / SGX / US tickers
+    if ticker.endswith(".KL"):
+        return ticker.replace(".KL", "")
+    if ticker.endswith(".SI"):
+        return ticker.replace(".SI", "")
+
+    return ticker
+
+
+
 def normalize_user_ticker(raw_ticker, market_name):
     """
     Convert easy user input into Yahoo Finance ticker format.
@@ -696,6 +850,7 @@ def calculate_auto_active_stocks(
 
             rows.append({
                 "Ticker": normalized_ticker,
+                "Name": get_stock_name(normalized_ticker),
                 "Latest_Close": round(latest_close, 4),
                 "Latest_Volume": round(latest_volume, 0),
                 "Latest_Traded_Value": round(latest_traded_value, 2),
@@ -1930,6 +2085,7 @@ def analyse_stock(ticker, benchmark_df, market_name):
 
     return {
         "Ticker": ticker,
+        "Name": get_stock_name(ticker),
         "Close": round(close, price_decimal),
         "Score": score,
         "Buy_Sell_Safety": buy_sell_safety,
@@ -2088,6 +2244,7 @@ def dataframe_to_excel(df, sheet_name):
 # ============================================================
 
 DISPLAY_COLUMN_RENAME = {
+    "Name": "Stock Name",
     "Buy_Sell_Safety": "Buy/Sell Safety",
     "Practical_Rank_Score": "Practical Score",
     "Smart_Money_Signal": "Smart Money Signal",
@@ -2192,7 +2349,7 @@ def style_scanner_table(df):
     numeric_cols = [
         c for c in df.columns
         if c not in [
-            "Ticker", "Buy/Sell Safety", "Final View", "Smart Money Signal",
+            "Ticker", "Stock Name", "Buy/Sell Safety", "Final View", "Smart Money Signal",
             "Capital Flow", "Early Signal", "Practical_Notes", "Reasons"
         ]
     ]
@@ -3087,6 +3244,7 @@ if page == "Page 1 - Stock Scanner":
             "It refreshes with market data cache, usually every 1 hour."
         )
         active_display_df = auto_active_df.rename(columns={
+            "Name": "Stock Name",
             "Latest_Close": "Latest Close",
             "Latest_Volume": "Latest Volume",
             "Latest_Traded_Value": "Latest Traded Value",
@@ -3134,7 +3292,7 @@ if page == "Page 1 - Stock Scanner":
     if stock_group == "Custom":
         st.sidebar.caption(
             "Easy input supported: Malaysia DNEX or 4456 becomes 4456.KL; "
-            "Singapore DBS or D05 becomes D05.SI."
+            "Singapore DBS or D05 becomes D05.SI. Results will show both ticker and stock name."
         )
 
     if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"]:
@@ -3230,6 +3388,7 @@ if page == "Page 1 - Stock Scanner":
 
                 priority_columns = [
                     "Ticker",
+                    "Name",
                     "Buy_Sell_Safety",
                     "Close",
                     "Score",
