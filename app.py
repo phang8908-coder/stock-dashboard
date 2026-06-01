@@ -364,6 +364,175 @@ SINGAPORE_BROAD_PRESET = list(dict.fromkeys(SINGAPORE_STI_30 + ACTIVE_SINGAPORE_
 
 
 
+
+# ============================================================
+# Ticker Alias / Easy Input Helper
+# ============================================================
+
+MALAYSIA_TICKER_ALIASES = {
+    "MAYBANK": "1155.KL",
+    "CIMB": "1023.KL",
+    "PBBANK": "1295.KL",
+    "PUBLICBANK": "1295.KL",
+    "RHBBANK": "1066.KL",
+    "AMBANK": "1015.KL",
+    "HLBANK": "5819.KL",
+    "HLFG": "1082.KL",
+    "BIMB": "5258.KL",
+
+    "TENAGA": "5347.KL",
+    "TNB": "5347.KL",
+    "CDB": "6947.KL",
+    "CDBIGI": "6947.KL",
+    "CELCOMDIGI": "6947.KL",
+    "MAXIS": "6012.KL",
+    "AXIATA": "6888.KL",
+    "TM": "4863.KL",
+    "TELEKOM": "4863.KL",
+    "PETGAS": "6033.KL",
+    "YTL": "4677.KL",
+    "YTLPOWR": "6742.KL",
+
+    "SIMEPLT": "5285.KL",
+    "KLK": "2445.KL",
+    "IOICORP": "1961.KL",
+    "PPB": "4065.KL",
+    "QL": "7084.KL",
+    "NESTLE": "4707.KL",
+    "F&N": "3689.KL",
+    "FNB": "3689.KL",
+
+    "IHH": "5225.KL",
+    "TOPGLOV": "7113.KL",
+    "HARTA": "5168.KL",
+    "KOSSAN": "7153.KL",
+    "SUPERMX": "7106.KL",
+
+    "DNEX": "4456.KL",
+    "DAGANG": "4456.KL",
+    "FRONTKN": "0128.KL",
+    "FRONTKEN": "0128.KL",
+    "VITROX": "0097.KL",
+    "INARI": "0166.KL",
+    "MPI": "3867.KL",
+    "MI": "5286.KL",
+    "GREATEC": "0208.KL",
+    "UWC": "5292.KL",
+    "PENTA": "7160.KL",
+    "AEMULUS": "0181.KL",
+    "JFTECH": "0146.KL",
+    "D&O": "7202.KL",
+    "DNO": "7202.KL",
+
+    "DIALOG": "7277.KL",
+    "HIBISCS": "5199.KL",
+    "HIBISCUS": "5199.KL",
+    "ARMADA": "5210.KL",
+    "BUMIARMADA": "5210.KL",
+    "DAYANG": "5141.KL",
+    "YINSON": "7293.KL",
+    "MISC": "3816.KL",
+
+    "GAMUDA": "5398.KL",
+    "SUNWAY": "5211.KL",
+    "IJM": "3336.KL",
+    "SPSETIA": "8664.KL",
+    "SIMEPROP": "5288.KL",
+    "MRCB": "1651.KL",
+    "ECOWLD": "8206.KL",
+    "MAHSING": "8583.KL",
+    "MRDIY": "5296.KL",
+    "GENM": "4715.KL",
+    "GENTING": "3182.KL",
+    "AIRPORT": "5014.KL",
+    "MAHB": "5014.KL",
+    "CAPITALA": "5099.KL",
+    "AIRASIA": "5099.KL",
+}
+
+SINGAPORE_TICKER_ALIASES = {
+    "DBS": "D05.SI",
+    "OCBC": "O39.SI",
+    "UOB": "U11.SI",
+    "SINGTEL": "Z74.SI",
+    "SIA": "C6L.SI",
+    "SGX": "S68.SI",
+    "CAPITALAND": "C38U.SI",
+    "CICT": "C38U.SI",
+    "ASCENDAS": "A17U.SI",
+    "CAPLANDASCENDAS": "A17U.SI",
+    "KEPPEL": "BN4.SI",
+    "WILMAR": "F34.SI",
+    "GENTINGSING": "G13.SI",
+    "SATS": "S58.SI",
+    "SEMBIND": "U96.SI",
+    "SEMBCORP": "U96.SI",
+    "STENGINEERING": "S63.SI",
+    "STE": "S63.SI",
+    "VENTURE": "V03.SI",
+}
+
+
+def normalize_user_ticker(raw_ticker, market_name):
+    """
+    Convert easy user input into Yahoo Finance ticker format.
+
+    Malaysia examples:
+    4456 -> 4456.KL
+    4456.kl -> 4456.KL
+    dnex -> 4456.KL
+    DNEX -> 4456.KL
+    """
+    ticker = str(raw_ticker).strip().upper()
+
+    if not ticker:
+        return ""
+
+    ticker = ticker.replace(" ", "")
+    ticker = ticker.replace("_", "-")
+
+    if market_name == "Malaysia":
+        ticker = ticker.replace(".KLSE", ".KL")
+
+        if ticker in MALAYSIA_TICKER_ALIASES:
+            return MALAYSIA_TICKER_ALIASES[ticker]
+
+        if ticker.isdigit():
+            return f"{ticker}.KL"
+
+        if ticker.endswith(".KL"):
+            return ticker
+
+        return ticker
+
+    if market_name == "Singapore":
+        if ticker in SINGAPORE_TICKER_ALIASES:
+            return SINGAPORE_TICKER_ALIASES[ticker]
+
+        if ticker.endswith(".SI"):
+            return ticker
+
+        return f"{ticker}.SI"
+
+    ticker = ticker.replace(".", "-")
+    return ticker
+
+
+def normalize_ticker_list_from_text(custom_text, market_name):
+    """Convert comma/newline separated ticker input into clean Yahoo tickers."""
+    raw_items = []
+    for line in str(custom_text).splitlines():
+        raw_items.extend(line.split(","))
+
+    normalized = [
+        normalize_user_ticker(item, market_name)
+        for item in raw_items
+        if str(item).strip()
+    ]
+
+    return list(dict.fromkeys([t for t in normalized if t]))
+
+
 # ============================================================
 # Auto-load universe functions
 # ============================================================
@@ -2382,25 +2551,13 @@ def filter_display_period(df, lookback_days):
     return df[df.index >= start_date].copy()
 
 def normalize_ticker_for_market(ticker, market_name):
-    """Make ticker input easier for Page 4.
-    - Malaysia: user may type 6947 instead of 6947.KL
-    - US: keep normal tickers like TSLA, NVDA, BRK-B
-    """
+    """Make ticker input easier for Page 4."""
     ticker = str(ticker).strip().upper()
 
-    if market_name == "Malaysia":
-        if ticker.startswith("^"):
-            return ticker
-        if not ticker.endswith(".KL"):
-            ticker = f"{ticker}.KL"
+    if ticker.startswith("^"):
+        return ticker
 
-    if market_name == "Singapore":
-        if ticker.startswith("^"):
-            return ticker
-        if not ticker.endswith(".SI"):
-            ticker = f"{ticker}.SI"
-
-    return ticker
+    return normalize_user_ticker(ticker, market_name)
 
 
 def adjust_chart_config_for_market(ticker, market_name, period, data_source):
@@ -2779,11 +2936,7 @@ if page == "Page 1 - Stock Scanner":
                 "Enter tickers separated by comma",
                 "TSLA,NVDA,AAPL,MSFT,AMZN"
             )
-            stock_list = [
-                ticker.strip().upper()
-                for ticker in custom_text.split(",")
-                if ticker.strip()
-            ]
+            stock_list = normalize_ticker_list_from_text(custom_text, market_name)
 
     elif market_name == "Malaysia":
         benchmark_ticker = "^KLSE"
@@ -2851,14 +3004,10 @@ if page == "Page 1 - Stock Scanner":
             st.sidebar.info(f"Loaded {len(stock_list)} Malaysia tickers from {auto_universe}.")
         else:
             custom_text = st.sidebar.text_area(
-                "Enter Bursa tickers separated by comma",
-                "6947.KL,1015.KL,1295.KL,2445.KL,4863.KL"
+                "Enter Bursa tickers or stock names separated by comma",
+                "DNEX,4456,1155,MAYBANK,CIMB,TOPGLOV,FRONTKEN,VITROX"
             )
-            stock_list = [
-                ticker.strip().upper()
-                for ticker in custom_text.split(",")
-                if ticker.strip()
-            ]
+            stock_list = normalize_ticker_list_from_text(custom_text, market_name)
 
     else:
         benchmark_ticker = "^STI"
@@ -2925,14 +3074,10 @@ if page == "Page 1 - Stock Scanner":
             st.sidebar.info(f"Loaded {len(stock_list)} Singapore tickers from {auto_universe}.")
         else:
             custom_text = st.sidebar.text_area(
-                "Enter SGX tickers separated by comma",
-                "D05.SI,O39.SI,U11.SI,Z74.SI,C6L.SI"
+                "Enter SGX tickers or stock names separated by comma",
+                "DBS,D05,OCBC,O39,UOB,SINGTEL,SIA"
             )
-            stock_list = [
-                ticker.strip().upper()
-                for ticker in custom_text.split(",")
-                if ticker.strip()
-            ]
+            stock_list = normalize_ticker_list_from_text(custom_text, market_name)
 
     if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"] and auto_active_df is not None and not auto_active_df.empty:
         st.subheader("Active Stocks Selected")
@@ -2985,6 +3130,12 @@ if page == "Page 1 - Stock Scanner":
     st.sidebar.caption(
         f"Universe unique tickers: {len(stock_list)} | Selected to scan: {len(selected_stocks)}"
     )
+
+    if stock_group == "Custom":
+        st.sidebar.caption(
+            "Easy input supported: Malaysia DNEX or 4456 becomes 4456.KL; "
+            "Singapore DBS or D05 becomes D05.SI."
+        )
 
     if stock_group in ["Active Stocks", "Active Malaysia Stocks", "Active Singapore Stocks", "Top 50 + Active Stocks", "KLCI 30 + Active Malaysia Stocks", "STI 30 + Active Singapore Stocks"]:
         st.sidebar.caption(
