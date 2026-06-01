@@ -11,12 +11,6 @@ import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
-    AGGRID_AVAILABLE = True
-except Exception:
-    AGGRID_AVAILABLE = False
-
 warnings.filterwarnings("ignore")
 
 
@@ -1636,7 +1630,7 @@ def get_benchmark_data(market_name, period="2y", min_rows=120):
     If index data fails, fallback to large liquid bank/ETF proxies.
     """
     if market_name == "US":
-        candidates = ["SPY"]
+        candidates = ["SPY", "VOO", "QQQ"]
     elif market_name == "Malaysia":
         candidates = ["^KLSE", "1155.KL", "1023.KL", "1295.KL"]
     elif market_name == "Singapore":
@@ -1655,10 +1649,8 @@ def get_benchmark_data(market_name, period="2y", min_rows=120):
 
 def get_market_trend(market_name):
     if market_name == "US":
-        raw_1 = get_data("SPY", period="2y", min_rows=250)
-        raw_2 = get_data("QQQ", period="2y", min_rows=250)
-
-        ind_1 = add_indicators(raw_1)
+        benchmark_used, ind_1 = get_benchmark_data("US", period="2y", min_rows=120)
+        raw_2 = get_data("QQQ", period="2y", min_rows=120, market_name="US")
         ind_2 = add_indicators(raw_2)
 
         if ind_1 is None or ind_2 is None:
@@ -2092,6 +2084,7 @@ def analyse_stock(ticker, benchmark_df, market_name):
     return {
         "Ticker": ticker,
         "Name": get_stock_name(ticker),
+        "Stock": f"{ticker} | {get_stock_name(ticker)}",
         "Close": round(close, price_decimal),
         "Score": score,
         "Buy_Sell_Safety": buy_sell_safety,
@@ -2251,6 +2244,7 @@ def dataframe_to_excel(df, sheet_name):
 
 DISPLAY_COLUMN_RENAME = {
     "Name": "Stock Name",
+    "Stock": "Stock",
     "Buy_Sell_Safety": "Buy/Sell Safety",
     "Practical_Rank_Score": "Practical Score",
     "Smart_Money_Signal": "Smart Money Signal",
@@ -2275,9 +2269,7 @@ def make_display_df(df):
     """Rename technical column names into cleaner dashboard labels."""
     if df is None or df.empty:
         return df
-
-    display_df = df.rename(columns=DISPLAY_COLUMN_RENAME).copy()
-    return display_df
+    return df.rename(columns=DISPLAY_COLUMN_RENAME)
 
 
 def style_scanner_table(df):
@@ -2368,175 +2360,6 @@ def style_scanner_table(df):
 
     styled = styled.format(format_dict, na_rep="-")
     return styled
-
-
-
-def render_pinned_table(df, height=520, key=None):
-    """
-    Render a professional table with frozen/pinned Ticker and Stock Name columns.
-
-    This uses streamlit-aggrid if installed.
-    If streamlit-aggrid is missing, it falls back to st.dataframe.
-    """
-    if df is None or df.empty:
-        st.dataframe(df, use_container_width=True, height=height)
-        return
-
-    display_df = df.copy()
-
-    if AGGRID_AVAILABLE:
-        gb = GridOptionsBuilder.from_dataframe(display_df)
-
-        gb.configure_default_column(
-            resizable=True,
-            sortable=True,
-            filter=True,
-            wrapText=False,
-            autoHeight=False,
-            minWidth=105,
-        )
-
-        if "Ticker" in display_df.columns:
-            gb.configure_column(
-                "Ticker",
-                pinned="left",
-                width=115,
-                minWidth=105,
-                lockPinned=True,
-                cellStyle={
-                    "backgroundColor": "#020617",
-                    "color": "#F8FAFC",
-                    "fontWeight": "900",
-                    "borderRight": "1px solid #334155",
-                },
-            )
-
-        if "Stock Name" in display_df.columns:
-            gb.configure_column(
-                "Stock Name",
-                pinned="left",
-                width=210,
-                minWidth=180,
-                lockPinned=True,
-                cellStyle={
-                    "backgroundColor": "#020617",
-                    "color": "#E5E7EB",
-                    "fontWeight": "800",
-                    "borderRight": "1px solid #334155",
-                },
-            )
-
-        if "Buy/Sell Safety" in display_df.columns:
-            safety_style = JsCode("""
-            function(params) {
-                if (params.value === 'Safer Buy Setup') {
-                    return {'backgroundColor': '#14532D', 'color': '#DCFCE7', 'fontWeight': '900'};
-                }
-                if (params.value === 'Watch Buy Setup') {
-                    return {'backgroundColor': '#1E3A8A', 'color': '#DBEAFE', 'fontWeight': '900'};
-                }
-                if (params.value === 'Too Hot / Avoid Chasing') {
-                    return {'backgroundColor': '#78350F', 'color': '#FEF3C7', 'fontWeight': '900'};
-                }
-                if (params.value === 'Sell / Avoid Warning') {
-                    return {'backgroundColor': '#7F1D1D', 'color': '#FEE2E2', 'fontWeight': '900'};
-                }
-                return {'backgroundColor': '#374151', 'color': '#E5E7EB', 'fontWeight': '700'};
-            }
-            """)
-            gb.configure_column(
-                "Buy/Sell Safety",
-                width=170,
-                pinned=None,
-                cellStyle=safety_style,
-            )
-
-        for score_col in ["Score", "Practical Score"]:
-            if score_col in display_df.columns:
-                score_style = JsCode("""
-                function(params) {
-                    if (params.value >= 30) {
-                        return {'color': '#22C55E', 'fontWeight': '900'};
-                    }
-                    if (params.value >= 20) {
-                        return {'color': '#4ADE80', 'fontWeight': '900'};
-                    }
-                    if (params.value >= 12) {
-                        return {'color': '#38BDF8', 'fontWeight': '900'};
-                    }
-                    if (params.value >= 6) {
-                        return {'color': '#F59E0B', 'fontWeight': '900'};
-                    }
-                    return {'color': '#EF4444', 'fontWeight': '900'};
-                }
-                """)
-                gb.configure_column(score_col, width=130, cellStyle=score_style)
-
-        if "Risk/Reward" in display_df.columns:
-            rr_style = JsCode("""
-            function(params) {
-                if (params.value >= 3) {
-                    return {'color': '#22C55E', 'fontWeight': '900'};
-                }
-                if (params.value >= 2) {
-                    return {'color': '#4ADE80', 'fontWeight': '900'};
-                }
-                if (params.value >= 1) {
-                    return {'color': '#F59E0B', 'fontWeight': '900'};
-                }
-                return {'color': '#EF4444', 'fontWeight': '900'};
-            }
-            """)
-            gb.configure_column("Risk/Reward", width=135, cellStyle=rr_style)
-
-        if "Smart Money Signal" in display_df.columns:
-            money_style = JsCode("""
-            function(params) {
-                if (params.value === 'Strong Buying Pressure' || params.value === 'Buying Pressure') {
-                    return {'backgroundColor': '#064E3B', 'color': '#D1FAE5', 'fontWeight': '900'};
-                }
-                if (params.value === 'Mild Buying') {
-                    return {'backgroundColor': '#065F46', 'color': '#ECFDF5', 'fontWeight': '800'};
-                }
-                if (params.value === 'Strong Selling Pressure' || params.value === 'Selling Pressure') {
-                    return {'backgroundColor': '#7F1D1D', 'color': '#FEE2E2', 'fontWeight': '900'};
-                }
-                if (params.value === 'Mild Selling') {
-                    return {'backgroundColor': '#991B1B', 'color': '#FEE2E2', 'fontWeight': '800'};
-                }
-                return {'backgroundColor': '#334155', 'color': '#E5E7EB', 'fontWeight': '700'};
-            }
-            """)
-            gb.configure_column("Smart Money Signal", width=190, cellStyle=money_style)
-
-        grid_options = gb.build()
-        grid_options["enableRangeSelection"] = True
-        grid_options["suppressRowClickSelection"] = True
-        grid_options["rowHeight"] = 34
-        grid_options["headerHeight"] = 38
-
-        AgGrid(
-            display_df,
-            gridOptions=grid_options,
-            height=height,
-            width="100%",
-            fit_columns_on_grid_load=False,
-            allow_unsafe_jscode=True,
-            theme="balham",
-            key=key,
-        )
-    else:
-        st.warning(
-            "Pinned columns need streamlit-aggrid. Add streamlit-aggrid to requirements.txt. "
-            "Showing normal Streamlit table for now."
-        )
-        st.dataframe(
-            style_scanner_table(display_df),
-            use_container_width=True,
-            height=height,
-            hide_index=True,
-        )
-
 
 
 def render_section_header(title, subtitle=None):
@@ -3428,12 +3251,7 @@ if page == "Page 1 - Stock Scanner":
             "Relative_Volume": "Rel Volume",
             "Price_Change_5D_%": "5D Change %"
         })
-
-        render_pinned_table(
-            active_display_df,
-            height=260,
-            key="active_stocks_selected"
-        )
+        st.dataframe(active_display_df, use_container_width=True, height=260)
 
         if stock_group == "KLCI 30 + Active Malaysia Stocks":
             active_count = len(auto_active_df)
@@ -3520,13 +3338,13 @@ if page == "Page 1 - Stock Scanner":
 
                 st.info(f"{market_name} benchmark used: {benchmark_used}")
             else:
-                benchmark_used = "SPY"
-                benchmark_raw = get_data("SPY", period="2y", min_rows=250)
-                benchmark_df = add_indicators(benchmark_raw)
+                benchmark_used, benchmark_df = get_benchmark_data("US", period="2y", min_rows=120)
 
                 if benchmark_df is None:
-                    st.error("SPY benchmark data is not available. Cannot continue.")
+                    st.error("US benchmark data is not available. Tried SPY, VOO, and QQQ. Cannot continue.")
                     st.stop()
+
+                st.info(f"US benchmark used: {benchmark_used}")
 
             results = []
             skipped = []
@@ -3571,6 +3389,7 @@ if page == "Page 1 - Stock Scanner":
                 priority_columns = [
                     "Ticker",
                     "Name",
+                    "Stock",
                     "Buy_Sell_Safety",
                     "Close",
                     "Score",
