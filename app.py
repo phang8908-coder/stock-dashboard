@@ -2265,11 +2265,33 @@ DISPLAY_COLUMN_RENAME = {
 }
 
 
-def make_display_df(df):
-    """Rename technical column names into cleaner dashboard labels."""
+def make_display_df(df, freeze_identity=True):
+    """
+    Rename technical column names into cleaner dashboard labels.
+
+    freeze_identity=True:
+    - Ticker and Stock Name are converted into dataframe index columns.
+    - In Streamlit, index columns stay on the left side when horizontally scrolling,
+      so you can always see which stock the row belongs to.
+    """
     if df is None or df.empty:
         return df
-    return df.rename(columns=DISPLAY_COLUMN_RENAME)
+
+    display_df = df.rename(columns=DISPLAY_COLUMN_RENAME).copy()
+
+    if freeze_identity:
+        index_cols = []
+
+        if "Ticker" in display_df.columns:
+            index_cols.append("Ticker")
+
+        if "Stock Name" in display_df.columns:
+            index_cols.append("Stock Name")
+
+        if index_cols:
+            display_df = display_df.set_index(index_cols)
+
+    return display_df
 
 
 def style_scanner_table(df):
@@ -3251,7 +3273,18 @@ if page == "Page 1 - Stock Scanner":
             "Relative_Volume": "Rel Volume",
             "Price_Change_5D_%": "5D Change %"
         })
-        st.dataframe(active_display_df, use_container_width=True, height=260)
+
+        if "Ticker" in active_display_df.columns and "Stock Name" in active_display_df.columns:
+            active_display_df = active_display_df.set_index(["Ticker", "Stock Name"])
+        elif "Ticker" in active_display_df.columns:
+            active_display_df = active_display_df.set_index(["Ticker"])
+
+        st.dataframe(
+            active_display_df,
+            use_container_width=True,
+            height=260,
+            hide_index=False
+        )
 
         if stock_group == "KLCI 30 + Active Malaysia Stocks":
             active_count = len(auto_active_df)
