@@ -5414,7 +5414,6 @@ def get_guaranteed_practical_score(ticker, market_name):
         if raw_df is None or raw_df.empty:
             return {
                 "Practical Score": None,
-                "Technical Score": None,
                 "Buy/Sell Safety": "No price data",
                 "RSI": None,
                 "Risk/Reward": None,
@@ -5593,7 +5592,6 @@ def get_guaranteed_practical_score(ticker, market_name):
         return {
             "Practical Score": practical,
             "Base Score": technical,
-            "Technical Score": technical,
             "Buy/Sell Safety": safety,
             "RSI": round(rsi, 2) if rsi is not None else None,
             "Risk/Reward": round(rr, 2) if rr is not None else None,
@@ -5683,7 +5681,6 @@ def get_portfolio_score_tally_with_page1(ticker, market_name, benchmark_df, mark
     return {
         "Close": None,
         "Base Score": fallback.get("Technical Score"),
-        "Technical Score": fallback.get("Technical Score"),
         "Practical Score": fallback.get("Practical Score"),
         "Buy/Sell Safety": fallback.get("Buy/Sell Safety"),
         "RSI": fallback.get("RSI"),
@@ -5749,7 +5746,7 @@ def get_same_as_page1_scanner_score(ticker, market_name):
             "Support": result.get("Support"),
             "Resistance": result.get("Resistance"),
             "Smart Money": result.get("Smart_Money_Signal"),
-            "Data Source": "Same Formula as Page 1",
+            "Data Source": "Same as Page 1 Formula",
             "Notes": result.get("Practical_Notes", ""),
             "Raw Technical Result": result,
         }
@@ -5814,26 +5811,20 @@ def get_page3_score_with_same_formula_first(ticker, market_name):
 
 def final_visible_practical_score(score_data):
     """
-    Always return a visible Practical Score for Page 3 if any score exists.
-    Priority:
-    1. Practical Score
-    2. Technical Score
-    3. Score from Raw Technical Result
-    4. Practical_Rank_Score from Raw Technical Result
+    Page 3 Practical Score.
+
+    This equals Page 1 original column:
+    Practical_Rank_Score
     """
     if score_data is None:
         return None
 
     candidates = [
         score_data.get("Practical Score"),
-        score_data.get("Technical Score"),
     ]
 
     raw = score_data.get("Raw Technical Result") or {}
-    candidates.extend([
-        raw.get("Practical_Rank_Score"),
-        raw.get("Score"),
-    ])
+    candidates.append(raw.get("Practical_Rank_Score"))
 
     for c in candidates:
         val = safe_float(c)
@@ -5843,49 +5834,22 @@ def final_visible_practical_score(score_data):
     return None
 
 
-
 def final_visible_base_score(score_data):
     """
-    Visible Base Score for Page 3.
-    This is the raw Page 1 scanner Score when available.
-    Fallback uses the fallback technical score.
+    Page 3 Base Score.
+
+    This equals Page 1 original column:
+    Score
     """
     if score_data is None:
         return None
 
     candidates = [
         score_data.get("Base Score"),
-        score_data.get("Technical Score"),
     ]
 
     raw = score_data.get("Raw Technical Result") or {}
-    candidates.extend([
-        raw.get("Score"),
-        raw.get("Practical_Rank_Score"),
-    ])
-
-    for c in candidates:
-        val = safe_float(c)
-        if val is not None:
-            return round(val, 2)
-
-    return None
-
-
-def final_visible_technical_score(score_data):
-    if score_data is None:
-        return None
-
-    candidates = [
-        score_data.get("Technical Score"),
-        score_data.get("Practical Score"),
-    ]
-
-    raw = score_data.get("Raw Technical Result") or {}
-    candidates.extend([
-        raw.get("Score"),
-        raw.get("Practical_Rank_Score"),
-    ])
+    candidates.append(raw.get("Score"))
 
     for c in candidates:
         val = safe_float(c)
@@ -5990,7 +5954,6 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Buy/Sell Safety": score_data.get("Buy/Sell Safety"),
                 "Base Score": final_visible_base_score(score_data),
                 "Practical Score": final_visible_practical_score(score_data),
-                "Technical Score": final_visible_technical_score(score_data),
                 "Research Score": research_score,
                 "Risk Rating": risk_rating,
                 "RSI": score_data.get("RSI"),
@@ -6036,7 +5999,6 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
             "Current Price", "Buy Price", "P/L %",
             "Base Score", "Practical Score", "Research Score",
             "Buy/Sell Safety", "Action", "Data Source",
-            "Technical Score",
             "Risk Rating", "Risk/Reward", "RSI",
             "Support", "Resistance", "Smart Money",
             "Position Value", "P/L Value", "Quantity", "Notes"
@@ -6134,10 +6096,10 @@ if page == "Page 3 - Watchlist / Portfolio Review":
     with st.expander("Score Meaning"):
         st.write(
             """
-            **Base Score** = raw technical strength score from the Page 1 scanner formula.  
-            **Practical Score** = entry-quality score. It focuses more on whether the stock is practical to buy/add now.  
-            **Research Score** = business/fundamental/valuation score from the Research Analyzer.  
-            **Buy/Sell Safety** = simplified action label from the technical setup.
+            **Base Score** = Page 1 original `Score`. It is the main technical scanner score.  
+            **Practical Score** = Page 1 original `Practical_Rank_Score`. It is the entry-quality score.  
+            **Research Score** = Page 2 business/fundamental/valuation score.  
+            **Buy/Sell Safety** = simplified action label from the scanner setup.
             """
         )
 
@@ -6236,7 +6198,7 @@ if page == "Page 3 - Watchlist / Portfolio Review":
                 with st.expander("Debug: Page 3 Practical Score Check"):
                     st.write("Columns:", list(result_df.columns))
                     st.dataframe(result_df[[
-                        c for c in ["Base Score", "Practical Score", "Research Score", "Technical Score", "Buy/Sell Safety", "Data Source", "Notes"]
+                        c for c in ["Base Score", "Practical Score", "Research Score", "Buy/Sell Safety", "Data Source", "Notes"]
                         if c in result_df.columns
                     ]], use_container_width=True, hide_index=False)
 
