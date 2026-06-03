@@ -5196,9 +5196,9 @@ def calculate_fallback_practical_score(ticker, market_name):
     try:
         raw_df = get_data(
             ticker,
-            period="2y",
+            period="1y",
             interval="1d",
-            min_rows=120,
+            min_rows=30,
             market_name=market_name
         )
 
@@ -5407,7 +5407,7 @@ def get_guaranteed_practical_score(ticker, market_name):
             ticker,
             period="1y",
             interval="1d",
-            min_rows=60,
+            min_rows=30,
             market_name=market_name
         )
 
@@ -5809,6 +5809,61 @@ def get_page3_score_with_same_formula_first(ticker, market_name):
     }
 
 
+
+def final_visible_practical_score(score_data):
+    """
+    Always return a visible Practical Score for Page 3 if any score exists.
+    Priority:
+    1. Practical Score
+    2. Technical Score
+    3. Score from Raw Technical Result
+    4. Practical_Rank_Score from Raw Technical Result
+    """
+    if score_data is None:
+        return None
+
+    candidates = [
+        score_data.get("Practical Score"),
+        score_data.get("Technical Score"),
+    ]
+
+    raw = score_data.get("Raw Technical Result") or {}
+    candidates.extend([
+        raw.get("Practical_Rank_Score"),
+        raw.get("Score"),
+    ])
+
+    for c in candidates:
+        val = safe_float(c)
+        if val is not None:
+            return round(val, 2)
+
+    return None
+
+
+def final_visible_technical_score(score_data):
+    if score_data is None:
+        return None
+
+    candidates = [
+        score_data.get("Technical Score"),
+        score_data.get("Practical Score"),
+    ]
+
+    raw = score_data.get("Raw Technical Result") or {}
+    candidates.extend([
+        raw.get("Score"),
+        raw.get("Practical_Rank_Score"),
+    ])
+
+    for c in candidates:
+        val = safe_float(c)
+        if val is not None:
+            return round(val, 2)
+
+    return None
+
+
 def review_portfolio(portfolio_df, market_name, include_research_score=True):
     """
     Main portfolio review engine.
@@ -5902,8 +5957,8 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "P/L %": round(pl_pct, 2) if pl_pct is not None else None,
                 "P/L Value": round(pl_value, 2) if pl_value is not None else None,
                 "Buy/Sell Safety": score_data.get("Buy/Sell Safety"),
-                "Technical Score": score_data.get("Technical Score"),
-                "Practical Score": score_data.get("Practical Score"),
+                "Technical Score": final_visible_technical_score(score_data),
+                "Practical Score": final_visible_practical_score(score_data),
                 "Research Score": research_score,
                 "Risk Rating": risk_rating,
                 "RSI": score_data.get("RSI"),
@@ -5943,6 +5998,21 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
     result_df = pd.DataFrame(rows)
 
     if not result_df.empty:
+        # Force important columns to the front so Practical Score is visible immediately.
+        front_cols = [
+            "Ticker", "Stock Name", "Market",
+            "Current Price", "Buy Price", "P/L %",
+            "Practical Score", "Technical Score", "Research Score",
+            "Buy/Sell Safety", "Action", "Data Source",
+            "Risk Rating", "Risk/Reward", "RSI",
+            "Support", "Resistance", "Smart Money",
+            "Position Value", "P/L Value", "Quantity", "Notes"
+        ]
+
+        existing_front = [c for c in front_cols if c in result_df.columns]
+        remaining_cols = [c for c in result_df.columns if c not in existing_front]
+        result_df = result_df[existing_front + remaining_cols]
+
         result_df["Stock"] = (
             result_df["Ticker"].astype(str) + " | " +
             result_df["Stock Name"].astype(str) + " | " +
@@ -6104,12 +6174,28 @@ if page == "Page 3 - Watchlist / Portfolio Review":
             else:
                 st.subheader("Portfolio / Watchlist Review Result")
 
+                if "Practical Score" not in result_df.columns:
+                    st.error("Practical Score column was not created. Please check the app code.")
+                else:
+                    missing_count = result_df["Practical Score"].isna().sum()
+                    if missing_count > 0:
+                        st.warning(
+                            f"{missing_count} row(s) still have blank Practical Score because price/indicator data could not load."
+                        )
+
                 st.dataframe(
                     style_portfolio_table(result_df),
                     use_container_width=True,
                     height=560,
                     hide_index=False
                 )
+
+                with st.expander("Debug: Page 3 Practical Score Check"):
+                    st.write("Columns:", list(result_df.columns))
+                    st.dataframe(result_df[[
+                        c for c in ["Practical Score", "Technical Score", "Buy/Sell Safety", "Data Source", "Notes"]
+                        if c in result_df.columns
+                    ]], use_container_width=True, hide_index=False)
 
                 # Portfolio summary if buy price and quantity exist
                 total_value = result_df["Position Value"].dropna().sum() if "Position Value" in result_df.columns else None
