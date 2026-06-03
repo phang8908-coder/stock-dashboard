@@ -5786,9 +5786,33 @@ def get_page3_score_with_same_formula_first(ticker, market_name):
             "Fallback Notes": "No fallback data",
         }
 
+    # If fallback still cannot produce a visible practical score, use emergency basic score.
+    if safe_float(fallback.get("Practical Score")) is None:
+        emergency = get_emergency_basic_score(ticker, market_name)
+        return {
+            "Close": None,
+            "Base Score": emergency.get("Base Score"),
+            "Practical Score": emergency.get("Practical Score"),
+            "Buy/Sell Safety": emergency.get("Buy/Sell Safety"),
+            "RSI": emergency.get("RSI"),
+            "Risk/Reward": emergency.get("Risk/Reward"),
+            "Support": emergency.get("Support"),
+            "Resistance": emergency.get("Resistance"),
+            "Smart Money": emergency.get("Smart Money"),
+            "Data Source": emergency.get("Data Source"),
+            "Notes": emergency.get("Notes"),
+            "Raw Technical Result": {
+                "Buy_Sell_Safety": emergency.get("Buy/Sell Safety"),
+                "Score": emergency.get("Base Score"),
+                "Practical_Rank_Score": emergency.get("Practical Score"),
+                "RSI": emergency.get("RSI"),
+                "Risk_Reward": emergency.get("Risk/Reward"),
+            },
+        }
+
     return {
         "Close": None,
-        "Technical Score": fallback.get("Technical Score"),
+        "Base Score": fallback.get("Technical Score"),
         "Practical Score": fallback.get("Practical Score"),
         "Buy/Sell Safety": fallback.get("Buy/Sell Safety"),
         "RSI": fallback.get("RSI"),
@@ -5857,6 +5881,169 @@ def final_visible_base_score(score_data):
             return round(val, 2)
 
     return None
+
+
+
+def get_emergency_basic_score(ticker, market_name, buy_price=None):
+    """
+    Last-resort Page 3 score.
+
+    Purpose:
+    If full scanner and fallback indicator score fail because data is incomplete,
+    this still returns a visible Practical Score instead of blank.
+
+    It uses latest available price and simple price history only.
+    Max score: 20
+    """
+    try:
+        raw_df = get_data(
+            ticker,
+            period="6mo",
+            interval="1d",
+            min_rows=5,
+            market_name=market_name
+        )
+
+        if raw_df is None or raw_df.empty:
+            return {
+                "Base Score": 0,
+                "Practical Score": 0,
+                "Buy/Sell Safety": "No price data",
+                "RSI": None,
+                "Risk/Reward": None,
+                "Support": None,
+                "Resistance": None,
+                "Smart Money": "No data",
+                "Data Source": "No Data",
+                "Notes": "No OHLCV data returned. Check ticker format or data provider."
+            }
+
+        df = raw_df.copy()
+        close = safe_float(df["Close"].iloc[-1])
+
+        if close is None:
+            return {
+                "Base Score": 0,
+                "Practical Score": 0,
+                "Buy/Sell Safety": "No close price",
+                "RSI": None,
+                "Risk/Reward": None,
+                "Support": None,
+                "Resistance": None,
+                "Smart Money": "No data",
+                "Data Source": "No Data",
+                "Notes": "Close price unavailable."
+            }
+
+        score = 0
+        notes = []
+
+        # Basic momentum using available data
+        if len(df) >= 5:
+            close_5 = safe_float(df["Close"].iloc[-5])
+            if close_5 and close > close_5:
+                score += 4
+                notes.append("5D price improving")
+            else:
+                score += 1
+                notes.append("5D price weak")
+
+        if len(df) >= 20:
+            ma20 = safe_float(df["Close"].tail(20).mean())
+            if ma20 and close > ma20:
+                score += 5
+                notes.append("Above 20D average")
+            else:
+                score += 1
+                notes.append("Below 20D average")
+
+            support = safe_float(df["Low"].tail(20).min()) if "Low" in df.columns else None
+            resistance = safe_float(df["High"].tail(20).max()) if "High" in df.columns else None
+        else:
+            support = safe_float(df["Low"].min()) if "Low" in df.columns else None
+            resistance = safe_float(df["High"].max()) if "High" in df.columns else None
+
+        if len(df) >= 60:
+            ma60 = safe_float(df["Close"].tail(60).mean())
+            if ma60 and close > ma60:
+                score += 4
+                notes.append("Above 60D average")
+
+        # Volume check
+        if "Volume" in df.columns and len(df) >= 20:
+            latest_vol = safe_float(df["Volume"].iloc[-1])
+            avg_vol = safe_float(df["Volume"].tail(20).mean())
+            if latest_vol and avg_vol and latest_vol > avg_vol:
+                score += 3
+                notes.append("Volume above average")
+
+        # P/L based holding quality if buy price exists
+        if buy_price is not None and buy_price > 0:
+            pl_pct = (close - buy_price) / buy_price * 100
+            if pl_pct > 10:
+                score += 3
+                notes.append("Position in profit")
+            elif pl_pct < -8:
+                score -= 3
+                notes.append("Position drawdown >8%")
+
+        score = int(max(0, min(20, round(score))))
+
+        if score >= 14:
+            safety = "Watch Buy Setup"
+        elif score >= 8:
+            safety = "Neutral / Wait"
+        elif score <= 3:
+            safety = "Avoid / Weak Setup"
+        else:
+            safety = "Monitor"
+
+        return {
+            "Base Score": score,
+            "Practical Score": score,
+            "Buy/Sell Safety": safety,
+            "RSI": None,
+            "Risk/Reward": None,
+            "Support": round(support, 3) if support is not None else None,
+            "Resistance": round(resistance, 3) if resistance is not None else None,
+            "Smart Money": "Basic only",
+            "Data Source": "Emergency Basic Score",
+            "Notes": ", ".join(notes[:6]) if notes else "Basic score from limited price data"
+        }
+
+    except Exception as e:
+        return {
+            "Base Score": 0,
+            "Practical Score": 0,
+            "Buy/Sell Safety": "Score error",
+            "RSI": None,
+            "Risk/Reward": None,
+            "Support": None,
+            "Resistance": None,
+            "Smart Money": "No data",
+            "Data Source": "Score Error",
+            "Notes": str(e)[:100]
+        }
+
+
+def repair_blank_page3_scores(result_df):
+    """
+    Final safety repair:
+    Ensure Base Score and Practical Score columns exist and never disappear.
+    """
+    if result_df is None or result_df.empty:
+        return result_df
+
+    if "Base Score" not in result_df.columns:
+        result_df["Base Score"] = 0
+
+    if "Practical Score" not in result_df.columns:
+        result_df["Practical Score"] = result_df["Base Score"]
+
+    result_df["Base Score"] = pd.to_numeric(result_df["Base Score"], errors="coerce").fillna(0)
+    result_df["Practical Score"] = pd.to_numeric(result_df["Practical Score"], errors="coerce").fillna(result_df["Base Score"]).fillna(0)
+
+    return result_df
 
 
 def review_portfolio(portfolio_df, market_name, include_research_score=True):
@@ -6015,6 +6202,8 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
         )
         result_df = result_df.set_index("Stock")
         result_df = result_df.drop(columns=["Ticker", "Stock Name", "Market"], errors="ignore")
+
+    result_df = repair_blank_page3_scores(result_df)
 
     return result_df
 
@@ -6182,10 +6371,11 @@ if page == "Page 3 - Watchlist / Portfolio Review":
                 if "Practical Score" not in result_df.columns:
                     st.error("Practical Score column was not created. Please check the app code.")
                 else:
-                    missing_count = result_df["Practical Score"].isna().sum()
-                    if missing_count > 0:
-                        st.warning(
-                            f"{missing_count} row(s) still have blank Practical Score because price/indicator data could not load."
+                    zero_score_count = (pd.to_numeric(result_df["Practical Score"], errors="coerce").fillna(0) == 0).sum()
+                    if zero_score_count > 0:
+                        st.info(
+                            f"{zero_score_count} row(s) received 0 Practical Score because full technical data was unavailable. "
+                            "Check ticker format and the Data Source / Notes columns."
                         )
 
                 st.dataframe(
