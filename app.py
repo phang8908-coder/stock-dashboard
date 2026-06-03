@@ -369,6 +369,25 @@ SINGAPORE_BROAD_PRESET = list(dict.fromkeys(SINGAPORE_STI_30 + ACTIVE_SINGAPORE_
 # Ticker Alias / Easy Input Helper
 # ============================================================
 
+US_TICKER_ALIASES = {
+    "TESLA": "TSLA",
+    "NVIDIA": "NVDA",
+    "APPLE": "AAPL",
+    "MICROSOFT": "MSFT",
+    "AMAZON": "AMZN",
+    "META": "META",
+    "FACEBOOK": "META",
+    "GOOGLE": "GOOGL",
+    "ALPHABET": "GOOGL",
+    "ASANA": "ASAN",
+    "SNAPCHAT": "SNAP",
+    "SNAP": "SNAP",
+    "PALANTIR": "PLTR",
+    "COINBASE": "COIN",
+    "MICROSTRATEGY": "MSTR",
+    "AMD": "AMD",
+}
+
 MALAYSIA_TICKER_ALIASES = {
     "MAYBANK": "1155.KL",
     "CIMB": "1023.KL",
@@ -4747,7 +4766,7 @@ if page == "Page 2 - Research Analyzer":
         research_ticker_input = st.text_input(
             "Ticker / stock name",
             default_ticker,
-            help="Examples: TSLA, NVDA, DNEX, 4456, MAYBANK, DBS, D05"
+            help="Examples: TSLA, NVDA, ASAN, ASANA, DNEX, 4456, MAYBANK, DBS, D05"
         )
 
     with col3:
@@ -4953,6 +4972,9 @@ def detect_market_from_input(raw_ticker, selected_market):
 
     if t.endswith(".SI") or t in SINGAPORE_TICKER_ALIASES:
         return "Singapore"
+
+    if t in US_TICKER_ALIASES or t in ["ASAN", "TSLA", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "SNAP", "PLTR", "COIN", "MSTR", "AMD"]:
+        return "US"
 
     return selected_market
 
