@@ -4341,6 +4341,78 @@ def calculate_growth_from_statement(statement_df, possible_rows):
     return None
 
 
+
+def get_latest_market_price(ticker, market_name):
+    """
+    Fallback current price from chart data.
+    This is useful when yfinance .info does not return currentPrice / regularMarketPrice.
+    """
+    try:
+        price_df = get_data(
+            ticker,
+            period="3mo",
+            interval="1d",
+            min_rows=5,
+            market_name=market_name
+        )
+
+        if price_df is None or price_df.empty:
+            return None
+
+        return safe_float(price_df["Close"].iloc[-1])
+    except Exception:
+        return None
+
+
+def apply_page5_fallbacks(metrics, technical_result, rating, ticker, market_name):
+    """
+    Improve Page 5 so price, fair value, target, upside, and recommendation
+    still show even when Yahoo Finance info is incomplete.
+    """
+    metrics = dict(metrics)
+
+    # 1. Current price fallback from latest OHLCV data
+    if metrics.get("current_price") is None:
+        fallback_price = get_latest_market_price(ticker, market_name)
+        if fallback_price is not None:
+            metrics["current_price"] = fallback_price
+
+    current_price = metrics.get("current_price")
+
+    # 2. Fair value / target fallback
+    # Priority:
+    # analyst targetMeanPrice -> technical target -> resistance
+    if metrics.get("target_mean") is None and technical_result:
+        technical_target = technical_result.get("Technical_Target")
+        resistance = technical_result.get("Resistance")
+
+        if technical_target is not None:
+            metrics["target_mean"] = safe_float(technical_target)
+            metrics["target_source"] = "Technical Target"
+        elif resistance is not None:
+            metrics["target_mean"] = safe_float(resistance)
+            metrics["target_source"] = "Resistance"
+        else:
+            metrics["target_source"] = "Unavailable"
+    else:
+        metrics["target_source"] = "Analyst Target" if metrics.get("target_mean") is not None else "Unavailable"
+
+    # 3. Expected upside fallback
+    if metrics.get("implied_upside") is None:
+        target_mean = metrics.get("target_mean")
+        if current_price and target_mean:
+            metrics["implied_upside"] = (target_mean - current_price) / current_price
+
+    # 4. Recommendation fallback
+    if not metrics.get("recommendation"):
+        metrics["recommendation"] = rating
+        metrics["recommendation_source"] = "App Rating"
+    else:
+        metrics["recommendation_source"] = "Yahoo Analyst"
+
+    return metrics
+
+
 def score_research_fundamentals(info, financials, balance_sheet, cashflow):
     score_parts = {}
     notes = []
@@ -4665,6 +4737,7 @@ if page == "Page 5 - Research Analyzer":
 
     st.info(
         "This page is not a prompt generator. It calculates a rule-based research score from available data. "
+        "If Yahoo Finance does not provide analyst target or recommendation, the app uses fallback logic from technical target and app rating. "
         "Some Malaysia/Singapore fundamental data may be incomplete in Yahoo Finance."
     )
 
@@ -4719,6 +4792,16 @@ if page == "Page 5 - Research Analyzer":
             total_score = int(round(sum(score_parts.values())))
             risk_rating = estimate_risk_rating(metrics, technical_result)
             rating = estimate_research_rating(total_score, risk_rating)
+
+            # Apply fallback logic so Page 5 does not show blanks when Yahoo Finance has incomplete info.
+            metrics = apply_page5_fallbacks(
+                metrics=metrics,
+                technical_result=technical_result,
+                rating=rating,
+                ticker=research_ticker,
+                market_name=research_market
+            )
+
             bull_case, bear_case = build_bull_bear_case(metrics, technical_result)
 
             current_price = metrics.get("current_price")
@@ -4741,11 +4824,19 @@ if page == "Page 5 - Research Analyzer":
             with p1:
                 st.metric("Current Price", f"{current_price:.2f}" if current_price else "-")
             with p2:
-                st.metric("Fair Value / Target", f"{target_mean:.2f}" if target_mean else "-")
+                target_source = metrics.get("target_source", "Target")
+                st.metric(
+                    f"Fair Value / Target ({target_source})",
+                    f"{target_mean:.2f}" if target_mean else "-"
+                )
             with p3:
                 st.metric("Expected Upside", pct_format(implied_upside))
             with p4:
-                st.metric("Recommendation", str(metrics.get("recommendation") or "-").upper())
+                rec_source = metrics.get("recommendation_source", "Recommendation")
+                st.metric(
+                    f"Recommendation ({rec_source})",
+                    str(metrics.get("recommendation") or "-").upper()
+                )
 
             st.subheader("Score Breakdown")
 
@@ -4771,6 +4862,8 @@ if page == "Page 5 - Research Analyzer":
                 {"Metric": "Gross Margin", "Value": pct_format(metrics.get("gross_margin"))},
                 {"Metric": "Operating Margin", "Value": pct_format(metrics.get("operating_margin"))},
                 {"Metric": "Profit Margin", "Value": pct_format(metrics.get("profit_margin"))},
+                {"Metric": "Target Source", "Value": metrics.get("target_source", "-")},
+                {"Metric": "Recommendation Source", "Value": metrics.get("recommendation_source", "-")},
             ])
 
             st.dataframe(snapshot, use_container_width=True, hide_index=True)
