@@ -5616,6 +5616,91 @@ def get_guaranteed_practical_score(ticker, market_name):
         }
 
 
+
+def get_portfolio_score_tally_with_page1(ticker, market_name, benchmark_df, market_trend):
+    """
+    Page 3 portfolio scoring logic.
+
+    Priority:
+    1. Use the exact same Page 1 full scanner result:
+       - Score
+       - Practical_Rank_Score
+       - Buy_Sell_Safety
+       - Risk_Reward
+       - RSI
+       - Support / Resistance
+       - Smart Money
+    2. If Page 1 scanner fails, use Guaranteed Practical fallback.
+
+    This keeps Page 3 aligned with Page 1 whenever possible.
+    """
+    # First try Page 1 scanner formula
+    try:
+        if benchmark_df is not None:
+            full_result = analyse_stock(ticker, benchmark_df, market_name)
+
+            if full_result is not None:
+                if "Final View" not in full_result:
+                    full_result["Final View"] = get_final_view(
+                        full_result.get("Score", 0),
+                        market_trend
+                    )
+
+                return {
+                    "Close": safe_float(full_result.get("Close")),
+                    "Technical Score": full_result.get("Score"),
+                    "Practical Score": full_result.get("Practical_Rank_Score"),
+                    "Buy/Sell Safety": full_result.get("Buy_Sell_Safety"),
+                    "RSI": full_result.get("RSI"),
+                    "Risk/Reward": full_result.get("Risk_Reward"),
+                    "Support": full_result.get("Support"),
+                    "Resistance": full_result.get("Resistance"),
+                    "Smart Money": full_result.get("Smart_Money_Signal"),
+                    "Data Source": "Full Scanner / Same as Page 1",
+                    "Notes": full_result.get("Practical_Notes", ""),
+                    "Raw Technical Result": full_result,
+                }
+    except Exception:
+        pass
+
+    # Fallback if full scanner fails
+    fallback = get_guaranteed_practical_score(ticker, market_name)
+
+    if fallback is None:
+        fallback = {
+            "Practical Score": None,
+            "Technical Score": None,
+            "Buy/Sell Safety": "No data",
+            "RSI": None,
+            "Risk/Reward": None,
+            "Support": None,
+            "Resistance": None,
+            "Smart Money": "No data",
+            "Fallback Notes": "No fallback data",
+        }
+
+    return {
+        "Close": None,
+        "Technical Score": fallback.get("Technical Score"),
+        "Practical Score": fallback.get("Practical Score"),
+        "Buy/Sell Safety": fallback.get("Buy/Sell Safety"),
+        "RSI": fallback.get("RSI"),
+        "Risk/Reward": fallback.get("Risk/Reward"),
+        "Support": fallback.get("Support"),
+        "Resistance": fallback.get("Resistance"),
+        "Smart Money": fallback.get("Smart Money"),
+        "Data Source": "Fallback Practical",
+        "Notes": fallback.get("Fallback Notes"),
+        "Raw Technical Result": {
+            "Buy_Sell_Safety": fallback.get("Buy/Sell Safety"),
+            "Score": fallback.get("Technical Score"),
+            "Practical_Rank_Score": fallback.get("Practical Score"),
+            "RSI": fallback.get("RSI"),
+            "Risk_Reward": fallback.get("Risk/Reward"),
+        },
+    }
+
+
 def review_portfolio(portfolio_df, market_name, include_research_score=True):
     """
     Main portfolio review engine.
@@ -5650,18 +5735,17 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 _, row_benchmark_df = get_benchmark_data(row_market, period="2y", min_rows=120)
                 row_market_trend = get_market_trend(row_market)
 
-            tech_result = ensure_portfolio_technical_result(
+            score_data = get_portfolio_score_tally_with_page1(
                 ticker=ticker,
                 market_name=row_market,
                 benchmark_df=row_benchmark_df,
                 market_trend=row_market_trend
             )
 
-            if tech_result:
-                latest_price = latest_price or safe_float(tech_result.get("Close"))
+            tech_result = score_data.get("Raw Technical Result")
 
-            # Always calculate Practical Score independently for Page 3.
-            practical_data = get_guaranteed_practical_score(ticker, row_market)
+            if score_data.get("Close") is not None:
+                latest_price = latest_price or safe_float(score_data.get("Close"))
 
             pl_pct = None
             pl_value = None
@@ -5684,13 +5768,12 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                     technical_result=tech_result
                 )
 
-            # Build a small technical-like dict for action decision using guaranteed practical data.
             action_tech = tech_result or {
-                "Buy_Sell_Safety": practical_data.get("Buy/Sell Safety"),
-                "Score": practical_data.get("Technical Score"),
-                "Practical_Rank_Score": practical_data.get("Practical Score"),
-                "RSI": practical_data.get("RSI"),
-                "Risk_Reward": practical_data.get("Risk/Reward"),
+                "Buy_Sell_Safety": score_data.get("Buy/Sell Safety"),
+                "Score": score_data.get("Technical Score"),
+                "Practical_Rank_Score": score_data.get("Practical Score"),
+                "RSI": score_data.get("RSI"),
+                "Risk_Reward": score_data.get("Risk/Reward"),
             }
 
             action = decide_portfolio_action(
@@ -5710,18 +5793,18 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Position Value": round(position_value, 2) if position_value is not None else None,
                 "P/L %": round(pl_pct, 2) if pl_pct is not None else None,
                 "P/L Value": round(pl_value, 2) if pl_value is not None else None,
-                "Buy/Sell Safety": practical_data.get("Buy/Sell Safety"),
-                "Technical Score": practical_data.get("Technical Score"),
-                "Practical Score": practical_data.get("Practical Score"),
+                "Buy/Sell Safety": score_data.get("Buy/Sell Safety"),
+                "Technical Score": score_data.get("Technical Score"),
+                "Practical Score": score_data.get("Practical Score"),
                 "Research Score": research_score,
                 "Risk Rating": risk_rating,
-                "RSI": practical_data.get("RSI"),
-                "Risk/Reward": practical_data.get("Risk/Reward"),
-                "Support": practical_data.get("Support"),
-                "Resistance": practical_data.get("Resistance"),
-                "Smart Money": practical_data.get("Smart Money"),
-                "Data Source": "Guaranteed Practical",
-                "Notes": practical_data.get("Fallback Notes"),
+                "RSI": score_data.get("RSI"),
+                "Risk/Reward": score_data.get("Risk/Reward"),
+                "Support": score_data.get("Support"),
+                "Resistance": score_data.get("Resistance"),
+                "Smart Money": score_data.get("Smart Money"),
+                "Data Source": score_data.get("Data Source"),
+                "Notes": score_data.get("Notes"),
                 "Action": "No price data" if latest_price is None else action,
             })
 
@@ -5834,7 +5917,7 @@ if page == "Page 3 - Watchlist / Portfolio Review":
 
     st.info(
         "You can use this page as a watchlist without buy price, or as a portfolio review by adding buy price and quantity. "
-        "If full scanner data is unavailable, the app will calculate a fallback Practical Score from the stock's own technical data."
+        "Page 3 uses the same Practical Score as Page 1 when full scanner data is available. If Page 1 scanner data is unavailable, it uses fallback Practical Score from the stock's own technical data."
     )
 
     col1, col2, col3 = st.columns(3)
