@@ -5179,6 +5179,218 @@ def decide_portfolio_action(pl_pct, technical_result, research_score, risk_ratin
     return "Hold / Monitor"
 
 
+
+def calculate_fallback_practical_score(ticker, market_name):
+    """
+    Fallback technical/practical score for Page 3 when analyse_stock() cannot return data.
+
+    This avoids blank Practical Score caused by benchmark/relative-strength failure.
+    It uses only the stock's own OHLCV data:
+    - MA20 / MA50 / MA200
+    - RSI
+    - MACD histogram
+    - Relative volume
+    - Support / resistance
+    - CMF / MFI / smart money flow if available
+    """
+    try:
+        raw_df = get_data(
+            ticker,
+            period="2y",
+            interval="1d",
+            min_rows=120,
+            market_name=market_name
+        )
+
+        if raw_df is None or raw_df.empty:
+            return None
+
+        df = add_indicators(raw_df)
+
+        if df is None or df.empty:
+            return None
+
+        latest = df.iloc[-1]
+
+        close = value(latest.get("Close"))
+        rsi = value(latest.get("RSI"))
+        ma20 = value(latest.get("MA20"))
+        ma50 = value(latest.get("MA50"))
+        ma200 = value(latest.get("MA200"))
+        macd_hist = value(latest.get("MACD_Hist"))
+        macd_hist_change = value(latest.get("MACD_Hist_Change"))
+        rel_volume = value(latest.get("Relative_Volume"))
+        support = value(latest.get("Support"))
+        resistance = value(latest.get("Resistance"))
+        adx = value(latest.get("ADX"))
+        cmf = value(latest.get("CMF"))
+        mfi = value(latest.get("MFI"))
+        smart_money = value(latest.get("Smart_Money_Flow_Score"))
+
+        if close is None:
+            return None
+
+        score = 0
+        notes = []
+
+        # Trend
+        if ma20 is not None and close > ma20:
+            score += 2
+            notes.append("Above MA20")
+        if ma50 is not None and close > ma50:
+            score += 3
+            notes.append("Above MA50")
+        if ma200 is not None and close > ma200:
+            score += 3
+            notes.append("Above MA200")
+
+        # RSI
+        if rsi is not None:
+            if 45 <= rsi <= 65:
+                score += 4
+                notes.append("RSI healthy")
+            elif 35 <= rsi < 45:
+                score += 2
+                notes.append("RSI recovering")
+            elif rsi > 75:
+                score -= 3
+                notes.append("RSI too hot")
+            elif rsi < 30:
+                score -= 2
+                notes.append("RSI weak/oversold")
+
+        # MACD momentum
+        if macd_hist is not None and macd_hist > 0:
+            score += 3
+            notes.append("MACD positive")
+        if macd_hist_change is not None and macd_hist_change > 0:
+            score += 2
+            notes.append("MACD improving")
+
+        # Volume
+        if rel_volume is not None:
+            if rel_volume >= 1.5:
+                score += 4
+                notes.append("Strong volume")
+            elif rel_volume >= 1.1:
+                score += 2
+                notes.append("Volume above average")
+
+        # ADX
+        if adx is not None:
+            if adx >= 25:
+                score += 3
+                notes.append("Trend strength good")
+            elif adx >= 18:
+                score += 1
+                notes.append("Trend forming")
+
+        # Money flow
+        if cmf is not None:
+            if cmf > 0.1:
+                score += 3
+                notes.append("CMF inflow")
+            elif cmf < -0.1:
+                score -= 2
+                notes.append("CMF outflow")
+
+        if mfi is not None:
+            if 45 <= mfi <= 75:
+                score += 2
+                notes.append("MFI healthy")
+            elif mfi > 85:
+                score -= 2
+                notes.append("MFI too hot")
+
+        if smart_money is not None:
+            if smart_money > 1:
+                score += 3
+                notes.append("Smart money positive")
+            elif smart_money < -1:
+                score -= 3
+                notes.append("Smart money negative")
+
+        # Risk/reward estimate
+        risk_reward = None
+        upside_pct = None
+        risk_pct = None
+
+        if support is not None and resistance is not None and close is not None:
+            upside = resistance - close
+            downside = close - support
+            if downside > 0:
+                risk_reward = upside / downside
+                upside_pct = upside / close * 100
+                risk_pct = downside / close * 100
+
+                if risk_reward >= 2:
+                    score += 4
+                    notes.append("Good risk/reward")
+                elif risk_reward >= 1:
+                    score += 2
+                    notes.append("Acceptable risk/reward")
+                elif risk_reward < 0.7:
+                    score -= 2
+                    notes.append("Poor risk/reward")
+
+        practical_score = max(0, min(44, int(round(score))))
+
+        if practical_score >= 25:
+            safety = "Safer Buy Setup"
+        elif practical_score >= 16:
+            safety = "Watch Buy Setup"
+        elif practical_score <= 8:
+            safety = "Avoid / Weak Setup"
+        else:
+            safety = "Neutral / Wait"
+
+        return {
+            "Close": round(close, 3),
+            "Practical_Rank_Score": practical_score,
+            "Score": practical_score,
+            "Buy_Sell_Safety": safety,
+            "RSI": round(rsi, 2) if rsi is not None else None,
+            "ADX": round(adx, 2) if adx is not None else None,
+            "Risk_Reward": round(risk_reward, 2) if risk_reward is not None else None,
+            "Support": round(support, 3) if support is not None else None,
+            "Resistance": round(resistance, 3) if resistance is not None else None,
+            "Smart_Money_Signal": "Positive" if smart_money is not None and smart_money > 1 else ("Negative" if smart_money is not None and smart_money < -1 else "Neutral"),
+            "Fallback_Used": True,
+            "Fallback_Notes": ", ".join(notes[:6])
+        }
+
+    except Exception:
+        return None
+
+
+def ensure_portfolio_technical_result(ticker, market_name, benchmark_df, market_trend):
+    """
+    Try full analyse_stock() first.
+    If it fails, use fallback practical score so Page 3 does not show blank data.
+    """
+    tech_result = None
+
+    try:
+        if benchmark_df is not None:
+            tech_result = analyse_stock(ticker, benchmark_df, market_name)
+
+            if tech_result is not None and "Final View" not in tech_result:
+                tech_result["Final View"] = get_final_view(tech_result["Score"], market_trend)
+    except Exception:
+        tech_result = None
+
+    if tech_result is None:
+        tech_result = calculate_fallback_practical_score(ticker, market_name)
+
+        if tech_result is not None:
+            tech_result["Final View"] = get_final_view(
+                tech_result.get("Score", 0),
+                market_trend
+            )
+
+    return tech_result
+
+
 def review_portfolio(portfolio_df, market_name, include_research_score=True):
     """
     Main portfolio review engine.
@@ -5213,13 +5425,12 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 _, row_benchmark_df = get_benchmark_data(row_market, period="2y", min_rows=120)
                 row_market_trend = get_market_trend(row_market)
 
-            tech_result = None
-
-            if row_benchmark_df is not None:
-                tech_result = analyse_stock(ticker, row_benchmark_df, row_market)
-
-                if tech_result is not None and "Final View" not in tech_result:
-                    tech_result["Final View"] = get_final_view(tech_result["Score"], row_market_trend)
+            tech_result = ensure_portfolio_technical_result(
+                ticker=ticker,
+                market_name=row_market,
+                benchmark_df=row_benchmark_df,
+                market_trend=row_market_trend
+            )
 
             if tech_result:
                 latest_price = latest_price or safe_float(tech_result.get("Close"))
@@ -5272,6 +5483,8 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Support": tech_result.get("Support") if tech_result else None,
                 "Resistance": tech_result.get("Resistance") if tech_result else None,
                 "Smart Money": tech_result.get("Smart_Money_Signal") if tech_result else None,
+                "Data Source": "Fallback Practical" if tech_result and tech_result.get("Fallback_Used") else "Full Scanner",
+                "Notes": tech_result.get("Fallback_Notes") if tech_result and tech_result.get("Fallback_Used") else "",
                 "Action": "No price data" if latest_price is None else action,
             })
 
@@ -5368,7 +5581,8 @@ if page == "Page 3 - Watchlist / Portfolio Review":
     )
 
     st.info(
-        "You can use this page as a watchlist without buy price, or as a portfolio review by adding buy price and quantity."
+        "You can use this page as a watchlist without buy price, or as a portfolio review by adding buy price and quantity. "
+        "If full scanner data is unavailable, the app will calculate a fallback Practical Score from the stock's own technical data."
     )
 
     col1, col2, col3 = st.columns(3)
