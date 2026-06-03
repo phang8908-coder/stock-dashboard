@@ -5527,6 +5527,14 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
 
 
 def style_portfolio_table(df):
+    """
+    Safe portfolio table styling.
+
+    Important:
+    Only numeric columns are formatted as numbers.
+    Text columns like Action, Data Source, Notes must not use {:,.2f},
+    otherwise Streamlit Cloud can raise ValueError.
+    """
     if df is None or df.empty:
         return df
 
@@ -5535,6 +5543,7 @@ def style_portfolio_table(df):
             val = float(val)
         except Exception:
             return ""
+
         if val >= 20:
             return "color: #22C55E; font-weight: 900;"
         if val >= 5:
@@ -5547,11 +5556,12 @@ def style_portfolio_table(df):
 
     def color_action(val):
         val = str(val)
+
         if "Add" in val or "Strong" in val or "Hold Winner" in val:
             return "background-color: #14532D; color: #DCFCE7; font-weight: 900;"
         if "Take" in val:
             return "background-color: #78350F; color: #FEF3C7; font-weight: 900;"
-        if "Cut" in val or "Reduce" in val or "Avoid" in val:
+        if "Cut" in val or "Reduce" in val or "Avoid" in val or "No price" in val:
             return "background-color: #7F1D1D; color: #FEE2E2; font-weight: 900;"
         return "background-color: #334155; color: #E5E7EB; font-weight: 800;"
 
@@ -5566,12 +5576,17 @@ def style_portfolio_table(df):
     if "Action" in df.columns:
         styled = styled.map(color_action, subset=["Action"])
 
+    # Format only actual numeric columns.
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+
     format_dict = {}
-    for col in df.columns:
-        if col not in ["Buy/Sell Safety", "Risk Rating", "Smart Money", "Action"]:
-            format_dict[col] = "{:,.2f}"
+    for col in numeric_cols:
+        format_dict[col] = "{:,.2f}"
 
     return styled.format(format_dict, na_rep="-")
+
+
+
 
 
 if page == "Page 3 - Watchlist / Portfolio Review":
