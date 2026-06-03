@@ -189,7 +189,7 @@ st.markdown(
         </div>
         <div style="color:#94A3B8; font-size:16px; margin-top:8px; max-width:980px;">
             Multi-market stock scanner for US, Malaysia, and Singapore markets — powered by trend, momentum,
-            volume, smart money flow, capital flow, backtesting, risk/reward analysis, and US options screening.
+            volume, smart money flow, capital flow, research scoring, risk/reward analysis, and portfolio review.
         </div>
     </div>
     """,
@@ -2935,11 +2935,9 @@ st.sidebar.markdown(
 page = st.sidebar.radio(
     "Choose Module",
     [
-        "Page 1 - Stock Scanner",
-        "Page 2 - Backtest Strategy",
-        "Page 3 - Options Watchlist",
-        "Page 4 - Technical Chart",
-        "Page 5 - Research Analyzer"
+        "Page 1 - Market Scanner",
+        "Page 2 - Research Analyzer",
+        "Page 3 - Watchlist / Portfolio Review"
     ]
 )
 
@@ -2948,8 +2946,8 @@ page = st.sidebar.radio(
 # Page 1 - Stock Scanner
 # ============================================================
 
-if page == "Page 1 - Stock Scanner":
-    render_section_header("Page 1 — Stock Scanner", "Screen US, Malaysia, and Singapore stocks using trend, volume, money flow, risk/reward, and practical ranking.")
+if page == "Page 1 - Market Scanner":
+    render_section_header("Page 1 — Market Scanner", "Screen US, Malaysia, and Singapore stocks using trend, volume, money flow, risk/reward, and practical ranking.")
 
     st.sidebar.header("Scanner Settings")
 
@@ -4729,9 +4727,9 @@ def build_bull_bear_case(metrics, technical_result):
     return bull, bear
 
 
-if page == "Page 5 - Research Analyzer":
+if page == "Page 2 - Research Analyzer":
     render_section_header(
-        "Page 5 — Market Beast Research Analyzer",
+        "Page 2 — Market Beast Research Analyzer",
         "Rule-based stock research engine combining fundamentals, valuation, technical timing, analyst targets, and risk scoring."
     )
 
@@ -4931,4 +4929,475 @@ if page == "Page 5 - Research Analyzer":
                 "This is a rule-based research engine, not financial advice. "
                 "Always check earnings dates, company news, market trend, position size, and your risk limit before buying."
             )
+
+
+
+
+
+# ============================================================
+# Page 3 - Watchlist / Portfolio Review
+# ============================================================
+
+def normalize_portfolio_dataframe(uploaded_df, market_name):
+    """
+    Clean uploaded portfolio CSV.
+    Expected columns can be flexible:
+    Ticker / Symbol / Stock
+    Buy Price / Entry Price / Cost
+    Quantity / Qty / Shares
+    """
+    if uploaded_df is None or uploaded_df.empty:
+        return pd.DataFrame()
+
+    df = uploaded_df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    col_map = {}
+
+    for col in df.columns:
+        c = col.lower().replace("_", " ").strip()
+
+        if c in ["ticker", "symbol", "stock", "code"]:
+            col_map[col] = "Ticker"
+        elif c in ["buy price", "entry price", "cost", "average price", "avg price", "price"]:
+            col_map[col] = "Buy Price"
+        elif c in ["quantity", "qty", "shares", "units", "unit"]:
+            col_map[col] = "Quantity"
+
+    df = df.rename(columns=col_map)
+
+    if "Ticker" not in df.columns:
+        return pd.DataFrame()
+
+    if "Buy Price" not in df.columns:
+        df["Buy Price"] = None
+
+    if "Quantity" not in df.columns:
+        df["Quantity"] = None
+
+    df["Ticker"] = df["Ticker"].apply(lambda x: normalize_user_ticker(x, market_name))
+    df["Buy Price"] = pd.to_numeric(df["Buy Price"], errors="coerce")
+    df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce")
+
+    return df[["Ticker", "Buy Price", "Quantity"]].dropna(subset=["Ticker"])
+
+
+def build_portfolio_from_text(text_input, market_name):
+    """
+    Build portfolio/watchlist from text.
+    Supported examples:
+    TSLA
+    TSLA,430,1
+    DNEX,0.45,10000
+    DBS,38,100
+    """
+    rows = []
+
+    for line in str(text_input).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        parts = [p.strip() for p in line.split(",")]
+
+        ticker = normalize_user_ticker(parts[0], market_name)
+        buy_price = None
+        qty = None
+
+        if len(parts) >= 2:
+            buy_price = safe_float(parts[1])
+
+        if len(parts) >= 3:
+            qty = safe_float(parts[2])
+
+        rows.append({
+            "Ticker": ticker,
+            "Buy Price": buy_price,
+            "Quantity": qty
+        })
+
+    return pd.DataFrame(rows)
+
+
+def get_research_score_for_portfolio(ticker, market_name, technical_result=None):
+    """
+    Lightweight research score for portfolio review.
+    Uses Page 2 fundamental engine if data available.
+    """
+    try:
+        info = get_yfinance_info(ticker)
+        financials, balance_sheet, cashflow = get_yfinance_financials(ticker)
+
+        score_parts, notes, metrics = score_research_fundamentals(
+            info=info,
+            financials=financials,
+            balance_sheet=balance_sheet,
+            cashflow=cashflow
+        )
+
+        if technical_result:
+            risk_rating = estimate_risk_rating(metrics, technical_result)
+        else:
+            risk_rating = estimate_risk_rating(metrics, None)
+
+        total_score = int(round(sum(score_parts.values())))
+
+        # Page 2 research score has max 90 before technical if not added.
+        # Normalize lightly to 100-style by keeping as-is and cap.
+        total_score = max(0, min(100, total_score))
+
+        return total_score, risk_rating
+
+    except Exception:
+        return None, "Unknown"
+
+
+def decide_portfolio_action(pl_pct, technical_result, research_score, risk_rating):
+    """
+    Convert P/L + technical + research into a simple portfolio action.
+    """
+    safety = ""
+    tech_score = None
+    practical = None
+    rsi = None
+
+    if technical_result:
+        safety = technical_result.get("Buy_Sell_Safety", "")
+        tech_score = safe_float(technical_result.get("Score"))
+        practical = safe_float(technical_result.get("Practical_Rank_Score"))
+        rsi = safe_float(technical_result.get("RSI"))
+
+    # If no buy price, treat as watchlist action
+    if pl_pct is None:
+        if safety == "Safer Buy Setup" and (research_score is None or research_score >= 60):
+            return "Watch Buy / Strong Setup"
+        if safety == "Watch Buy Setup":
+            return "Watchlist / Wait Pullback"
+        if safety in ["Sell / Avoid Warning", "Too Hot / Avoid Chasing"]:
+            return "Avoid / Wait"
+        return "Monitor"
+
+    # Profit-taking logic
+    if pl_pct >= 20 and rsi is not None and rsi >= 75:
+        return "Take Partial Profit / Too Hot"
+
+    if pl_pct >= 20 and safety in ["Too Hot / Avoid Chasing", "Sell / Avoid Warning"]:
+        return "Take Profit / Protect Gain"
+
+    if pl_pct >= 10 and safety == "Safer Buy Setup" and (research_score is None or research_score >= 60):
+        return "Hold Winner"
+
+    # Cut-loss/review logic
+    if pl_pct <= -8 and safety == "Sell / Avoid Warning":
+        return "Review Cut Loss"
+
+    if pl_pct <= -8 and research_score is not None and research_score < 45:
+        return "Reduce / Weak Setup"
+
+    # Add / hold logic
+    if safety == "Safer Buy Setup" and (research_score is None or research_score >= 65):
+        return "Hold / Add on Pullback"
+
+    if safety == "Watch Buy Setup":
+        return "Hold / Watch"
+
+    if safety == "Sell / Avoid Warning":
+        return "Reduce / Avoid Add"
+
+    if risk_rating == "High":
+        return "Hold with Caution"
+
+    return "Hold / Monitor"
+
+
+def review_portfolio(portfolio_df, market_name, include_research_score=True):
+    """
+    Main portfolio review engine.
+    """
+    if portfolio_df is None or portfolio_df.empty:
+        return pd.DataFrame()
+
+    benchmark_used, benchmark_df = get_benchmark_data(market_name, period="2y", min_rows=120)
+    market_trend = get_market_trend(market_name)
+
+    rows = []
+
+    for _, row in portfolio_df.iterrows():
+        ticker = normalize_user_ticker(row.get("Ticker"), market_name)
+        buy_price = safe_float(row.get("Buy Price"))
+        qty = safe_float(row.get("Quantity"))
+
+        try:
+            latest_price = get_latest_market_price(ticker, market_name)
+
+            tech_result = analyse_stock(
+                ticker=ticker,
+                market_name=market_name,
+                market_trend=market_trend,
+                benchmark_df=benchmark_df
+            )
+
+            if tech_result:
+                latest_price = latest_price or safe_float(tech_result.get("Close"))
+
+            pl_pct = None
+            pl_value = None
+            position_value = None
+
+            if latest_price is not None and buy_price is not None and buy_price > 0:
+                pl_pct = (latest_price - buy_price) / buy_price * 100
+
+                if qty is not None and qty > 0:
+                    pl_value = (latest_price - buy_price) * qty
+                    position_value = latest_price * qty
+
+            research_score = None
+            risk_rating = "Unknown"
+
+            if include_research_score:
+                research_score, risk_rating = get_research_score_for_portfolio(
+                    ticker=ticker,
+                    market_name=market_name,
+                    technical_result=tech_result
+                )
+
+            action = decide_portfolio_action(
+                pl_pct=pl_pct,
+                technical_result=tech_result,
+                research_score=research_score,
+                risk_rating=risk_rating
+            )
+
+            rows.append({
+                "Ticker": ticker,
+                "Stock Name": get_stock_name(ticker),
+                "Current Price": round(latest_price, 3) if latest_price is not None else None,
+                "Buy Price": round(buy_price, 3) if buy_price is not None else None,
+                "Quantity": qty,
+                "Position Value": round(position_value, 2) if position_value is not None else None,
+                "P/L %": round(pl_pct, 2) if pl_pct is not None else None,
+                "P/L Value": round(pl_value, 2) if pl_value is not None else None,
+                "Buy/Sell Safety": tech_result.get("Buy_Sell_Safety") if tech_result else "No data",
+                "Technical Score": tech_result.get("Score") if tech_result else None,
+                "Practical Score": tech_result.get("Practical_Rank_Score") if tech_result else None,
+                "Research Score": research_score,
+                "Risk Rating": risk_rating,
+                "RSI": tech_result.get("RSI") if tech_result else None,
+                "Risk/Reward": tech_result.get("Risk_Reward") if tech_result else None,
+                "Support": tech_result.get("Support") if tech_result else None,
+                "Resistance": tech_result.get("Resistance") if tech_result else None,
+                "Smart Money": tech_result.get("Smart_Money_Signal") if tech_result else None,
+                "Action": action,
+            })
+
+        except Exception as e:
+            rows.append({
+                "Ticker": ticker,
+                "Stock Name": get_stock_name(ticker),
+                "Current Price": None,
+                "Buy Price": buy_price,
+                "Quantity": qty,
+                "Position Value": None,
+                "P/L %": None,
+                "P/L Value": None,
+                "Buy/Sell Safety": "Error",
+                "Technical Score": None,
+                "Practical Score": None,
+                "Research Score": None,
+                "Risk Rating": "Unknown",
+                "RSI": None,
+                "Risk/Reward": None,
+                "Support": None,
+                "Resistance": None,
+                "Smart Money": None,
+                "Action": f"Error: {str(e)[:50]}",
+            })
+
+    result_df = pd.DataFrame(rows)
+
+    if not result_df.empty:
+        result_df["Stock"] = result_df["Ticker"].astype(str) + " | " + result_df["Stock Name"].astype(str)
+        result_df = result_df.set_index("Stock")
+        result_df = result_df.drop(columns=["Ticker", "Stock Name"], errors="ignore")
+
+    return result_df
+
+
+def style_portfolio_table(df):
+    if df is None or df.empty:
+        return df
+
+    def color_pl(val):
+        try:
+            val = float(val)
+        except Exception:
+            return ""
+        if val >= 20:
+            return "color: #22C55E; font-weight: 900;"
+        if val >= 5:
+            return "color: #4ADE80; font-weight: 800;"
+        if val >= 0:
+            return "color: #38BDF8; font-weight: 800;"
+        if val <= -8:
+            return "color: #EF4444; font-weight: 900;"
+        return "color: #F59E0B; font-weight: 800;"
+
+    def color_action(val):
+        val = str(val)
+        if "Add" in val or "Strong" in val or "Hold Winner" in val:
+            return "background-color: #14532D; color: #DCFCE7; font-weight: 900;"
+        if "Take" in val:
+            return "background-color: #78350F; color: #FEF3C7; font-weight: 900;"
+        if "Cut" in val or "Reduce" in val or "Avoid" in val:
+            return "background-color: #7F1D1D; color: #FEE2E2; font-weight: 900;"
+        return "background-color: #334155; color: #E5E7EB; font-weight: 800;"
+
+    styled = df.style
+
+    if "P/L %" in df.columns:
+        styled = styled.map(color_pl, subset=["P/L %"])
+
+    if "P/L Value" in df.columns:
+        styled = styled.map(color_pl, subset=["P/L Value"])
+
+    if "Action" in df.columns:
+        styled = styled.map(color_action, subset=["Action"])
+
+    format_dict = {}
+    for col in df.columns:
+        if col not in ["Buy/Sell Safety", "Risk Rating", "Smart Money", "Action"]:
+            format_dict[col] = "{:,.2f}"
+
+    return styled.format(format_dict, na_rep="-")
+
+
+if page == "Page 3 - Watchlist / Portfolio Review":
+    render_section_header(
+        "Page 3 — Watchlist / Portfolio Review",
+        "Review stocks you own or monitor. The app combines current price, P/L, technical score, research score, risk rating, and suggested action."
+    )
+
+    st.info(
+        "You can use this page as a watchlist without buy price, or as a portfolio review by adding buy price and quantity."
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        portfolio_market = st.selectbox(
+            "Market",
+            ["US", "Malaysia", "Singapore"],
+            index=0,
+            key="portfolio_market"
+        )
+
+    with col2:
+        input_method = st.selectbox(
+            "Input method",
+            ["Manual Text", "Upload CSV"],
+            index=0
+        )
+
+    with col3:
+        include_research_score = st.checkbox(
+            "Include Research Score",
+            value=True,
+            help="This uses fundamental data and may be slower, especially for many tickers."
+        )
+
+    portfolio_df = pd.DataFrame()
+
+    if input_method == "Manual Text":
+        default_text = "TSLA,430,1\nNVDA,190,1" if portfolio_market == "US" else (
+            "DNEX,0.45,10000\nMAYBANK,9.80,1000" if portfolio_market == "Malaysia" else "DBS,38,100\nOCBC,15,100"
+        )
+
+        portfolio_text = st.text_area(
+            "Enter one stock per line: Ticker, Buy Price, Quantity",
+            default_text,
+            height=160,
+            help="Examples: TSLA,430,1 or DNEX,0.45,10000 or DBS,38,100. You can also enter ticker only."
+        )
+
+        portfolio_df = build_portfolio_from_text(portfolio_text, portfolio_market)
+
+    else:
+        uploaded_portfolio = st.file_uploader(
+            "Upload portfolio CSV",
+            type=["csv"],
+            help="CSV columns supported: Ticker, Buy Price, Quantity"
+        )
+
+        if uploaded_portfolio is not None:
+            raw_portfolio = pd.read_csv(uploaded_portfolio)
+            portfolio_df = normalize_portfolio_dataframe(raw_portfolio, portfolio_market)
+
+        st.caption("CSV format example: Ticker, Buy Price, Quantity")
+
+    if not portfolio_df.empty:
+        st.subheader("Input Preview")
+        preview_df = portfolio_df.copy()
+        preview_df["Stock Name"] = preview_df["Ticker"].apply(get_stock_name)
+        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
+    if st.button("Run Portfolio Review", type="primary"):
+        if portfolio_df.empty:
+            st.error("Please enter or upload at least one ticker.")
+        else:
+            with st.spinner("Reviewing portfolio / watchlist..."):
+                result_df = review_portfolio(
+                    portfolio_df=portfolio_df,
+                    market_name=portfolio_market,
+                    include_research_score=include_research_score
+                )
+
+            if result_df.empty:
+                st.warning("No review result available.")
+            else:
+                st.subheader("Portfolio / Watchlist Review Result")
+
+                st.dataframe(
+                    style_portfolio_table(result_df),
+                    use_container_width=True,
+                    height=560,
+                    hide_index=False
+                )
+
+                # Portfolio summary if buy price and quantity exist
+                total_value = result_df["Position Value"].dropna().sum() if "Position Value" in result_df.columns else None
+                total_pl = result_df["P/L Value"].dropna().sum() if "P/L Value" in result_df.columns else None
+
+                s1, s2, s3 = st.columns(3)
+
+                with s1:
+                    st.metric("Total Position Value", f"{total_value:,.2f}" if total_value else "-")
+
+                with s2:
+                    st.metric("Total P/L", f"{total_pl:,.2f}" if total_pl else "-")
+
+                with s3:
+                    review_count = len(result_df)
+                    st.metric("Stocks Reviewed", review_count)
+
+                csv_data = result_df.reset_index().to_csv(index=False).encode("utf-8")
+
+                st.download_button(
+                    "Download Review CSV",
+                    csv_data,
+                    "portfolio_review.csv",
+                    "text/csv"
+                )
+
+                with st.expander("Action Logic"):
+                    st.write(
+                        """
+                        **Hold / Add on Pullback**: Strong research and technical setup.  
+                        **Hold / Watch**: Acceptable setup, but not perfect.  
+                        **Take Partial Profit**: Profit is strong and RSI/setup may be hot.  
+                        **Review Cut Loss**: Loss is large and technical setup is weak.  
+                        **Reduce / Avoid Add**: Weak setup or risk is high.  
+
+                        This is a rule-based guide, not financial advice.
+                        """
+                    )
 
