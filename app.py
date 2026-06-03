@@ -5701,6 +5701,114 @@ def get_portfolio_score_tally_with_page1(ticker, market_name, benchmark_df, mark
     }
 
 
+
+def get_same_as_page1_scanner_score(ticker, market_name):
+    """
+    Recalculate the exact same scanner result used by Page 1.
+
+    Important:
+    - This does NOT depend on Page 1 having been scanned before.
+    - It directly calls analyse_stock(), which is the same function Page 1 uses.
+    - Therefore Page 3 can match Page 1 scoring formula without saving Page 1 state.
+
+    Returns:
+    - score_data dictionary for Page 3 portfolio table
+    """
+    try:
+        benchmark_used, benchmark_df = get_benchmark_data(
+            market_name,
+            period="2y",
+            min_rows=120
+        )
+
+        market_trend = get_market_trend(market_name)
+
+        if benchmark_df is None:
+            return None, benchmark_used, market_trend
+
+        result = analyse_stock(ticker, benchmark_df, market_name)
+
+        if result is None:
+            return None, benchmark_used, market_trend
+
+        if "Final View" not in result:
+            result["Final View"] = get_final_view(
+                result.get("Score", 0),
+                market_trend
+            )
+
+        score_data = {
+            "Close": safe_float(result.get("Close")),
+            "Technical Score": result.get("Score"),
+            "Practical Score": result.get("Practical_Rank_Score"),
+            "Buy/Sell Safety": result.get("Buy_Sell_Safety"),
+            "RSI": result.get("RSI"),
+            "Risk/Reward": result.get("Risk_Reward"),
+            "Support": result.get("Support"),
+            "Resistance": result.get("Resistance"),
+            "Smart Money": result.get("Smart_Money_Signal"),
+            "Data Source": "Same Formula as Page 1",
+            "Notes": result.get("Practical_Notes", ""),
+            "Raw Technical Result": result,
+        }
+
+        return score_data, benchmark_used, market_trend
+
+    except Exception:
+        return None, None, "Unknown"
+
+
+def get_page3_score_with_same_formula_first(ticker, market_name):
+    """
+    Page 3 scoring rule:
+    1. Use the same Page 1 formula directly.
+    2. If Page 1 formula cannot return data, use fallback own-stock practical calculation.
+    """
+    score_data, benchmark_used, market_trend = get_same_as_page1_scanner_score(
+        ticker=ticker,
+        market_name=market_name
+    )
+
+    if score_data is not None:
+        return score_data
+
+    fallback = get_guaranteed_practical_score(ticker, market_name)
+
+    if fallback is None:
+        fallback = {
+            "Practical Score": None,
+            "Technical Score": None,
+            "Buy/Sell Safety": "No data",
+            "RSI": None,
+            "Risk/Reward": None,
+            "Support": None,
+            "Resistance": None,
+            "Smart Money": "No data",
+            "Fallback Notes": "No fallback data",
+        }
+
+    return {
+        "Close": None,
+        "Technical Score": fallback.get("Technical Score"),
+        "Practical Score": fallback.get("Practical Score"),
+        "Buy/Sell Safety": fallback.get("Buy/Sell Safety"),
+        "RSI": fallback.get("RSI"),
+        "Risk/Reward": fallback.get("Risk/Reward"),
+        "Support": fallback.get("Support"),
+        "Resistance": fallback.get("Resistance"),
+        "Smart Money": fallback.get("Smart Money"),
+        "Data Source": "Fallback Practical",
+        "Notes": fallback.get("Fallback Notes"),
+        "Raw Technical Result": {
+            "Buy_Sell_Safety": fallback.get("Buy/Sell Safety"),
+            "Score": fallback.get("Technical Score"),
+            "Practical_Rank_Score": fallback.get("Practical Score"),
+            "RSI": fallback.get("RSI"),
+            "Risk_Reward": fallback.get("Risk/Reward"),
+        },
+    }
+
+
 def review_portfolio(portfolio_df, market_name, include_research_score=True):
     """
     Main portfolio review engine.
@@ -5735,11 +5843,11 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 _, row_benchmark_df = get_benchmark_data(row_market, period="2y", min_rows=120)
                 row_market_trend = get_market_trend(row_market)
 
-            score_data = get_portfolio_score_tally_with_page1(
+            # Page 3 directly recalculates the same Page 1 scanner formula.
+            # It does not require Page 1 to be scanned or saved first.
+            score_data = get_page3_score_with_same_formula_first(
                 ticker=ticker,
-                market_name=row_market,
-                benchmark_df=row_benchmark_df,
-                market_trend=row_market_trend
+                market_name=row_market
             )
 
             tech_result = score_data.get("Raw Technical Result")
@@ -5917,7 +6025,7 @@ if page == "Page 3 - Watchlist / Portfolio Review":
 
     st.info(
         "You can use this page as a watchlist without buy price, or as a portfolio review by adding buy price and quantity. "
-        "Page 3 uses the same Practical Score as Page 1 when full scanner data is available. If Page 1 scanner data is unavailable, it uses fallback Practical Score from the stock's own technical data."
+        "Page 3 directly recalculates the same scoring formula as Page 1 for each stock. No need to scan/save Page 1 first. If the full formula cannot return data, it uses fallback Practical Score from the stock's own technical data."
     )
 
     col1, col2, col3 = st.columns(3)
