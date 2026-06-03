@@ -4604,12 +4604,10 @@ def score_research_fundamentals(info, financials, balance_sheet, cashflow):
 def calculate_technical_research_score(ticker, market_name, benchmark_df):
     try:
         market_trend = get_market_trend(market_name)
-        result = analyse_stock(
-            ticker=ticker,
-            market_name=market_name,
-            market_trend=market_trend,
-            benchmark_df=benchmark_df
-        )
+        result = analyse_stock(ticker, benchmark_df, market_name)
+
+        if result is not None and "Final View" not in result:
+            result["Final View"] = get_final_view(result["Score"], market_trend)
         if result is None:
             return 4, None, "Technical scoring unavailable"
 
@@ -4938,6 +4936,32 @@ if page == "Page 2 - Research Analyzer":
 # Page 3 - Watchlist / Portfolio Review
 # ============================================================
 
+
+def detect_market_from_input(raw_ticker, selected_market):
+    """
+    Auto-detect market from ticker input so Page 3 is more forgiving.
+
+    Examples:
+    4456 / DNEX / 4456.KL -> Malaysia
+    D05 / DBS / D05.SI -> Singapore
+    TSLA / NVDA -> US
+    """
+    t = str(raw_ticker).strip().upper().replace(" ", "")
+
+    if t.endswith(".KL") or t in MALAYSIA_TICKER_ALIASES or t.isdigit():
+        return "Malaysia"
+
+    if t.endswith(".SI") or t in SINGAPORE_TICKER_ALIASES:
+        return "Singapore"
+
+    return selected_market
+
+
+def normalize_portfolio_ticker(raw_ticker, selected_market):
+    detected_market = detect_market_from_input(raw_ticker, selected_market)
+    return normalize_user_ticker(raw_ticker, detected_market), detected_market
+
+
 def normalize_portfolio_dataframe(uploaded_df, market_name):
     """
     Clean uploaded portfolio CSV.
@@ -4975,11 +4999,13 @@ def normalize_portfolio_dataframe(uploaded_df, market_name):
     if "Quantity" not in df.columns:
         df["Quantity"] = None
 
-    df["Ticker"] = df["Ticker"].apply(lambda x: normalize_user_ticker(x, market_name))
+    detected = df["Ticker"].apply(lambda x: normalize_portfolio_ticker(x, market_name))
+    df["Ticker"] = detected.apply(lambda x: x[0])
+    df["Market"] = detected.apply(lambda x: x[1])
     df["Buy Price"] = pd.to_numeric(df["Buy Price"], errors="coerce")
     df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce")
 
-    return df[["Ticker", "Buy Price", "Quantity"]].dropna(subset=["Ticker"])
+    return df[["Ticker", "Market", "Buy Price", "Quantity"]].dropna(subset=["Ticker"])
 
 
 def build_portfolio_from_text(text_input, market_name):
@@ -5000,7 +5026,7 @@ def build_portfolio_from_text(text_input, market_name):
 
         parts = [p.strip() for p in line.split(",")]
 
-        ticker = normalize_user_ticker(parts[0], market_name)
+        ticker, detected_market = normalize_portfolio_ticker(parts[0], market_name)
         buy_price = None
         qty = None
 
@@ -5012,6 +5038,7 @@ def build_portfolio_from_text(text_input, market_name):
 
         rows.append({
             "Ticker": ticker,
+            "Market": detected_market,
             "Buy Price": buy_price,
             "Quantity": qty
         })
@@ -5120,22 +5147,37 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
     benchmark_used, benchmark_df = get_benchmark_data(market_name, period="2y", min_rows=120)
     market_trend = get_market_trend(market_name)
 
+    if benchmark_df is None:
+        st.warning(
+            f"{market_name} benchmark data is unavailable. Portfolio review will still show price/P&L, "
+            "but technical score may show No data."
+        )
+
     rows = []
 
     for _, row in portfolio_df.iterrows():
-        ticker = normalize_user_ticker(row.get("Ticker"), market_name)
+        row_market = row.get("Market", market_name)
+        ticker = normalize_user_ticker(row.get("Ticker"), row_market)
         buy_price = safe_float(row.get("Buy Price"))
         qty = safe_float(row.get("Quantity"))
 
         try:
-            latest_price = get_latest_market_price(ticker, market_name)
+            latest_price = get_latest_market_price(ticker, row_market)
 
-            tech_result = analyse_stock(
-                ticker=ticker,
-                market_name=market_name,
-                market_trend=market_trend,
-                benchmark_df=benchmark_df
-            )
+            row_benchmark_df = benchmark_df
+            row_market_trend = market_trend
+
+            if row_market != market_name:
+                _, row_benchmark_df = get_benchmark_data(row_market, period="2y", min_rows=120)
+                row_market_trend = get_market_trend(row_market)
+
+            tech_result = None
+
+            if row_benchmark_df is not None:
+                tech_result = analyse_stock(ticker, row_benchmark_df, row_market)
+
+                if tech_result is not None and "Final View" not in tech_result:
+                    tech_result["Final View"] = get_final_view(tech_result["Score"], row_market_trend)
 
             if tech_result:
                 latest_price = latest_price or safe_float(tech_result.get("Close"))
@@ -5170,6 +5212,7 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
 
             rows.append({
                 "Ticker": ticker,
+                "Market": row_market,
                 "Stock Name": get_stock_name(ticker),
                 "Current Price": round(latest_price, 3) if latest_price is not None else None,
                 "Buy Price": round(buy_price, 3) if buy_price is not None else None,
@@ -5187,12 +5230,13 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Support": tech_result.get("Support") if tech_result else None,
                 "Resistance": tech_result.get("Resistance") if tech_result else None,
                 "Smart Money": tech_result.get("Smart_Money_Signal") if tech_result else None,
-                "Action": action,
+                "Action": "No price data" if latest_price is None else action,
             })
 
         except Exception as e:
             rows.append({
                 "Ticker": ticker,
+                "Market": row_market,
                 "Stock Name": get_stock_name(ticker),
                 "Current Price": None,
                 "Buy Price": buy_price,
@@ -5216,9 +5260,13 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
     result_df = pd.DataFrame(rows)
 
     if not result_df.empty:
-        result_df["Stock"] = result_df["Ticker"].astype(str) + " | " + result_df["Stock Name"].astype(str)
+        result_df["Stock"] = (
+            result_df["Ticker"].astype(str) + " | " +
+            result_df["Stock Name"].astype(str) + " | " +
+            result_df["Market"].astype(str)
+        )
         result_df = result_df.set_index("Stock")
-        result_df = result_df.drop(columns=["Ticker", "Stock Name"], errors="ignore")
+        result_df = result_df.drop(columns=["Ticker", "Stock Name", "Market"], errors="ignore")
 
     return result_df
 
