@@ -2938,7 +2938,8 @@ page = st.sidebar.radio(
         "Page 1 - Stock Scanner",
         "Page 2 - Backtest Strategy",
         "Page 3 - Options Watchlist",
-        "Page 4 - Technical Chart"
+        "Page 4 - Technical Chart",
+        "Page 5 - Research Analyzer"
     ]
 )
 
@@ -4253,3 +4254,588 @@ if page == "Page 4 - Technical Chart":
             - MFI 40 to 80 = healthier money flow range
             """
         )
+
+
+
+# ============================================================
+# Page 5 - Market Beast Research Analyzer
+# ============================================================
+
+def safe_float(x, default=None):
+    try:
+        if x is None:
+            return default
+        if pd.isna(x):
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def format_large_number(x):
+    x = safe_float(x)
+    if x is None:
+        return "-"
+    ax = abs(x)
+    if ax >= 1_000_000_000_000:
+        return f"{x / 1_000_000_000_000:.2f}T"
+    if ax >= 1_000_000_000:
+        return f"{x / 1_000_000_000:.2f}B"
+    if ax >= 1_000_000:
+        return f"{x / 1_000_000:.2f}M"
+    if ax >= 1_000:
+        return f"{x / 1_000:.2f}K"
+    return f"{x:.2f}"
+
+
+def pct_format(x):
+    x = safe_float(x)
+    if x is None:
+        return "-"
+    return f"{x * 100:.2f}%"
+
+
+@st.cache_data(ttl=3600)
+def get_yfinance_info(ticker):
+    try:
+        tk = yf.Ticker(ticker)
+        return tk.info or {}
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=3600)
+def get_yfinance_financials(ticker):
+    try:
+        tk = yf.Ticker(ticker)
+        return tk.financials, tk.balance_sheet, tk.cashflow
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+
+def get_statement_value(statement_df, possible_rows, col_index=0):
+    if statement_df is None or statement_df.empty:
+        return None
+    for row in possible_rows:
+        if row in statement_df.index:
+            try:
+                return safe_float(statement_df.loc[row].iloc[col_index])
+            except Exception:
+                return None
+    return None
+
+
+def calculate_growth_from_statement(statement_df, possible_rows):
+    if statement_df is None or statement_df.empty or len(statement_df.columns) < 2:
+        return None
+    for row in possible_rows:
+        if row in statement_df.index:
+            try:
+                latest = safe_float(statement_df.loc[row].iloc[0])
+                previous = safe_float(statement_df.loc[row].iloc[1])
+                if latest is None or previous is None or previous == 0:
+                    return None
+                return (latest - previous) / abs(previous)
+            except Exception:
+                return None
+    return None
+
+
+def score_research_fundamentals(info, financials, balance_sheet, cashflow):
+    score_parts = {}
+    notes = []
+
+    revenue_growth = calculate_growth_from_statement(
+        financials, ["Total Revenue", "Operating Revenue"]
+    )
+    earnings_growth = calculate_growth_from_statement(
+        financials, ["Net Income", "Net Income Common Stockholders", "Net Income From Continuing Operation Net Minority Interest"]
+    )
+
+    latest_fcf = get_statement_value(cashflow, ["Free Cash Flow", "Operating Cash Flow"], 0)
+    previous_fcf = get_statement_value(cashflow, ["Free Cash Flow", "Operating Cash Flow"], 1)
+
+    total_debt = safe_float(info.get("totalDebt"), 0)
+    total_cash = safe_float(info.get("totalCash"), 0)
+    market_cap = safe_float(info.get("marketCap"))
+    current_price = safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+    target_mean = safe_float(info.get("targetMeanPrice"))
+    pe = safe_float(info.get("trailingPE"))
+    forward_pe = safe_float(info.get("forwardPE"))
+    peg = safe_float(info.get("pegRatio"))
+    price_to_book = safe_float(info.get("priceToBook"))
+    gross_margin = safe_float(info.get("grossMargins"))
+    operating_margin = safe_float(info.get("operatingMargins"))
+    profit_margin = safe_float(info.get("profitMargins"))
+    recommendation = info.get("recommendationKey")
+
+    # Revenue growth max 20
+    if revenue_growth is None:
+        score_parts["Revenue Growth"] = 8
+        notes.append("Revenue growth data incomplete")
+    elif revenue_growth >= 0.25:
+        score_parts["Revenue Growth"] = 20
+        notes.append("Strong revenue growth")
+    elif revenue_growth >= 0.10:
+        score_parts["Revenue Growth"] = 16
+        notes.append("Healthy revenue growth")
+    elif revenue_growth >= 0.03:
+        score_parts["Revenue Growth"] = 11
+        notes.append("Mild revenue growth")
+    elif revenue_growth >= 0:
+        score_parts["Revenue Growth"] = 7
+        notes.append("Flat revenue growth")
+    else:
+        score_parts["Revenue Growth"] = 3
+        notes.append("Revenue declining")
+
+    # Earnings growth max 20
+    if earnings_growth is None:
+        score_parts["Earnings Growth"] = 8
+        notes.append("Earnings growth data incomplete")
+    elif earnings_growth >= 0.30:
+        score_parts["Earnings Growth"] = 20
+        notes.append("Strong earnings growth")
+    elif earnings_growth >= 0.12:
+        score_parts["Earnings Growth"] = 16
+        notes.append("Healthy earnings growth")
+    elif earnings_growth >= 0.03:
+        score_parts["Earnings Growth"] = 11
+        notes.append("Mild earnings growth")
+    elif earnings_growth >= 0:
+        score_parts["Earnings Growth"] = 7
+        notes.append("Flat earnings growth")
+    else:
+        score_parts["Earnings Growth"] = 3
+        notes.append("Earnings declining")
+
+    # FCF max 15
+    if latest_fcf is None:
+        score_parts["Free Cash Flow"] = 6
+        notes.append("Free cash flow data incomplete")
+    elif latest_fcf > 0 and (previous_fcf is None or latest_fcf >= previous_fcf):
+        score_parts["Free Cash Flow"] = 15
+        notes.append("Positive and improving free cash flow")
+    elif latest_fcf > 0:
+        score_parts["Free Cash Flow"] = 11
+        notes.append("Positive free cash flow")
+    else:
+        score_parts["Free Cash Flow"] = 3
+        notes.append("Negative free cash flow")
+
+    # Debt strength max 10
+    if total_cash >= total_debt and (total_cash > 0 or total_debt > 0):
+        score_parts["Debt Strength"] = 10
+        notes.append("Cash position stronger than debt")
+    elif market_cap and total_debt / market_cap < 0.15:
+        score_parts["Debt Strength"] = 8
+        notes.append("Debt appears manageable")
+    elif market_cap and total_debt / market_cap < 0.35:
+        score_parts["Debt Strength"] = 6
+        notes.append("Moderate debt level")
+    else:
+        score_parts["Debt Strength"] = 4
+        notes.append("Debt risk should be reviewed")
+
+    # Valuation max 15
+    valuation_score = 7
+    if peg is not None and peg > 0:
+        if peg <= 1:
+            valuation_score = 15
+            notes.append("PEG appears attractive")
+        elif peg <= 1.8:
+            valuation_score = 11
+            notes.append("PEG appears fair")
+        else:
+            valuation_score = 6
+            notes.append("PEG appears expensive")
+    elif forward_pe is not None and forward_pe > 0:
+        if forward_pe <= 15:
+            valuation_score = 14
+            notes.append("Forward PE appears attractive")
+        elif forward_pe <= 30:
+            valuation_score = 10
+            notes.append("Forward PE appears acceptable")
+        else:
+            valuation_score = 5
+            notes.append("Forward PE appears expensive")
+    elif pe is not None and pe > 0:
+        if pe <= 15:
+            valuation_score = 13
+            notes.append("Trailing PE appears attractive")
+        elif pe <= 30:
+            valuation_score = 9
+            notes.append("Trailing PE appears acceptable")
+        else:
+            valuation_score = 5
+            notes.append("Trailing PE appears expensive")
+    elif price_to_book is not None and price_to_book > 0:
+        if price_to_book <= 1.5:
+            valuation_score = 12
+            notes.append("Price/book appears reasonable")
+        elif price_to_book <= 4:
+            valuation_score = 8
+            notes.append("Price/book appears moderate")
+        else:
+            valuation_score = 5
+            notes.append("Price/book appears high")
+    else:
+        notes.append("Valuation data incomplete")
+    score_parts["Relative Valuation"] = valuation_score
+
+    implied_upside = None
+    analyst_score = 5
+    if current_price and target_mean:
+        implied_upside = (target_mean - current_price) / current_price
+        if implied_upside >= 0.25:
+            analyst_score = 10
+            notes.append("Analyst target implies strong upside")
+        elif implied_upside >= 0.10:
+            analyst_score = 8
+            notes.append("Analyst target implies moderate upside")
+        elif implied_upside >= 0:
+            analyst_score = 6
+            notes.append("Analyst target implies limited upside")
+        else:
+            analyst_score = 3
+            notes.append("Analyst target below current price")
+
+    if recommendation in ["buy", "strong_buy"]:
+        analyst_score = min(10, analyst_score + 1)
+    elif recommendation in ["sell", "strong_sell"]:
+        analyst_score = max(1, analyst_score - 2)
+
+    score_parts["Analyst / Target"] = analyst_score
+
+    metrics = {
+        "revenue_growth": revenue_growth,
+        "earnings_growth": earnings_growth,
+        "latest_fcf": latest_fcf,
+        "previous_fcf": previous_fcf,
+        "total_debt": total_debt,
+        "total_cash": total_cash,
+        "market_cap": market_cap,
+        "current_price": current_price,
+        "target_mean": target_mean,
+        "implied_upside": implied_upside,
+        "pe": pe,
+        "forward_pe": forward_pe,
+        "peg": peg,
+        "price_to_book": price_to_book,
+        "gross_margin": gross_margin,
+        "operating_margin": operating_margin,
+        "profit_margin": profit_margin,
+        "recommendation": recommendation,
+    }
+
+    return score_parts, notes, metrics
+
+
+def calculate_technical_research_score(ticker, market_name, benchmark_df):
+    try:
+        market_trend = get_market_trend(market_name)
+        result = analyse_stock(
+            ticker=ticker,
+            market_name=market_name,
+            market_trend=market_trend,
+            benchmark_df=benchmark_df
+        )
+        if result is None:
+            return 4, None, "Technical scoring unavailable"
+
+        base_score = safe_float(result.get("Score"), 0)
+        practical = safe_float(result.get("Practical_Rank_Score"), 0)
+        safety = result.get("Buy_Sell_Safety", "Neutral / Wait")
+        smart_money = str(result.get("Smart_Money_Signal", ""))
+
+        tech_score = 0
+        if base_score >= 15:
+            tech_score += 4
+        elif base_score >= 9:
+            tech_score += 3
+        elif base_score >= 6:
+            tech_score += 2
+        else:
+            tech_score += 1
+
+        if practical >= 25:
+            tech_score += 3
+        elif practical >= 18:
+            tech_score += 2
+        elif practical >= 10:
+            tech_score += 1
+
+        if safety == "Safer Buy Setup":
+            tech_score += 2
+        elif safety == "Watch Buy Setup":
+            tech_score += 1
+        elif safety == "Sell / Avoid Warning":
+            tech_score -= 1
+
+        if "Buying" in smart_money:
+            tech_score += 1
+        elif "Selling" in smart_money:
+            tech_score -= 1
+
+        tech_score = max(0, min(10, tech_score))
+        note = f"{safety}; Smart Money: {smart_money}; Market Trend: {market_trend}"
+        return tech_score, result, note
+
+    except Exception as e:
+        return 4, None, f"Technical error: {str(e)[:80]}"
+
+
+def estimate_risk_rating(metrics, technical_result):
+    risk_points = 0
+
+    if metrics.get("earnings_growth") is not None and metrics["earnings_growth"] < 0:
+        risk_points += 1
+    if metrics.get("latest_fcf") is not None and metrics["latest_fcf"] < 0:
+        risk_points += 1
+
+    total_debt = metrics.get("total_debt") or 0
+    total_cash = metrics.get("total_cash") or 0
+    if total_debt > total_cash * 2 and total_debt > 0:
+        risk_points += 1
+
+    if metrics.get("pe") is not None and metrics["pe"] > 60:
+        risk_points += 1
+
+    if technical_result:
+        safety = str(technical_result.get("Buy_Sell_Safety", ""))
+        if safety in ["Sell / Avoid Warning", "Too Hot / Avoid Chasing"]:
+            risk_points += 1
+
+    if risk_points >= 4:
+        return "High"
+    if risk_points >= 2:
+        return "Medium"
+    return "Low"
+
+
+def estimate_research_rating(total_score, risk_rating):
+    if total_score >= 75 and risk_rating != "High":
+        return "Buy / Accumulate"
+    if total_score >= 60:
+        return "Hold / Watchlist"
+    if total_score >= 45:
+        return "Neutral / Selective"
+    return "Avoid / High Caution"
+
+
+def build_bull_bear_case(metrics, technical_result):
+    bull = []
+    bear = []
+
+    if metrics.get("revenue_growth") is not None and metrics["revenue_growth"] > 0.10:
+        bull.append("Revenue growth is healthy.")
+    if metrics.get("earnings_growth") is not None and metrics["earnings_growth"] > 0.10:
+        bull.append("Earnings growth is healthy.")
+    if metrics.get("latest_fcf") is not None and metrics["latest_fcf"] > 0:
+        bull.append("Free cash flow is positive.")
+    if metrics.get("implied_upside") is not None and metrics["implied_upside"] > 0.10:
+        bull.append("Analyst target implies upside from current price.")
+    if technical_result and technical_result.get("Buy_Sell_Safety") in ["Safer Buy Setup", "Watch Buy Setup"]:
+        bull.append("Technical setup is supportive.")
+
+    if metrics.get("revenue_growth") is not None and metrics["revenue_growth"] < 0:
+        bear.append("Revenue is declining.")
+    if metrics.get("earnings_growth") is not None and metrics["earnings_growth"] < 0:
+        bear.append("Earnings are declining.")
+    if metrics.get("latest_fcf") is not None and metrics["latest_fcf"] < 0:
+        bear.append("Free cash flow is negative.")
+    if metrics.get("pe") is not None and metrics["pe"] > 50:
+        bear.append("Valuation may be expensive.")
+    if technical_result and technical_result.get("Buy_Sell_Safety") in ["Sell / Avoid Warning", "Too Hot / Avoid Chasing"]:
+        bear.append("Technical timing is not ideal.")
+
+    if not bull:
+        bull.append("Bull case is not strong from available data.")
+    if not bear:
+        bear.append("Main risk is incomplete data or unexpected market/news events.")
+
+    return bull, bear
+
+
+if page == "Page 5 - Research Analyzer":
+    render_section_header(
+        "Page 5 — Market Beast Research Analyzer",
+        "Rule-based stock research engine combining fundamentals, valuation, technical timing, analyst targets, and risk scoring."
+    )
+
+    st.info(
+        "This page is not a prompt generator. It calculates a rule-based research score from available data. "
+        "Some Malaysia/Singapore fundamental data may be incomplete in Yahoo Finance."
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        research_market = st.selectbox("Market", ["US", "Malaysia", "Singapore"], index=0)
+
+    with col2:
+        default_ticker = "TSLA" if research_market == "US" else ("DNEX" if research_market == "Malaysia" else "DBS")
+        research_ticker_input = st.text_input(
+            "Ticker / stock name",
+            default_ticker,
+            help="Examples: TSLA, NVDA, DNEX, 4456, MAYBANK, DBS, D05"
+        )
+
+    with col3:
+        research_timeframe = st.selectbox(
+            "Investment timeframe",
+            ["5 trading days", "1 month", "12 months", "10 years"],
+            index=2
+        )
+
+    research_ticker = normalize_user_ticker(research_ticker_input, research_market)
+
+    if st.button("Run Research Analyzer", type="primary"):
+        if not research_ticker:
+            st.error("Please enter a ticker.")
+        else:
+            st.subheader(f"{research_ticker} | {get_stock_name(research_ticker)}")
+
+            info = get_yfinance_info(research_ticker)
+            financials, balance_sheet, cashflow = get_yfinance_financials(research_ticker)
+
+            benchmark_used, benchmark_df = get_benchmark_data(research_market, period="2y", min_rows=120)
+
+            score_parts, notes, metrics = score_research_fundamentals(
+                info=info,
+                financials=financials,
+                balance_sheet=balance_sheet,
+                cashflow=cashflow
+            )
+
+            technical_score, technical_result, technical_note = calculate_technical_research_score(
+                ticker=research_ticker,
+                market_name=research_market,
+                benchmark_df=benchmark_df
+            )
+
+            score_parts["Technical Trend"] = technical_score
+
+            total_score = int(round(sum(score_parts.values())))
+            risk_rating = estimate_risk_rating(metrics, technical_result)
+            rating = estimate_research_rating(total_score, risk_rating)
+            bull_case, bear_case = build_bull_bear_case(metrics, technical_result)
+
+            current_price = metrics.get("current_price")
+            target_mean = metrics.get("target_mean")
+            implied_upside = metrics.get("implied_upside")
+
+            m1, m2, m3, m4 = st.columns(4)
+
+            with m1:
+                st.metric("Market Beast Score", f"{total_score}/100")
+            with m2:
+                st.metric("Rating", rating)
+            with m3:
+                st.metric("Risk Rating", risk_rating)
+            with m4:
+                st.metric("Benchmark Used", benchmark_used or "-")
+
+            p1, p2, p3, p4 = st.columns(4)
+
+            with p1:
+                st.metric("Current Price", f"{current_price:.2f}" if current_price else "-")
+            with p2:
+                st.metric("Fair Value / Target", f"{target_mean:.2f}" if target_mean else "-")
+            with p3:
+                st.metric("Expected Upside", pct_format(implied_upside))
+            with p4:
+                st.metric("Recommendation", str(metrics.get("recommendation") or "-").upper())
+
+            st.subheader("Score Breakdown")
+
+            score_df = pd.DataFrame(
+                [{"Category": k, "Score": v} for k, v in score_parts.items()]
+            )
+
+            st.dataframe(score_df, use_container_width=True, hide_index=True)
+
+            st.subheader("Fundamental Snapshot")
+
+            snapshot = pd.DataFrame([
+                {"Metric": "Revenue Growth", "Value": pct_format(metrics.get("revenue_growth"))},
+                {"Metric": "Earnings Growth", "Value": pct_format(metrics.get("earnings_growth"))},
+                {"Metric": "Free Cash Flow", "Value": format_large_number(metrics.get("latest_fcf"))},
+                {"Metric": "Market Cap", "Value": format_large_number(metrics.get("market_cap"))},
+                {"Metric": "Total Cash", "Value": format_large_number(metrics.get("total_cash"))},
+                {"Metric": "Total Debt", "Value": format_large_number(metrics.get("total_debt"))},
+                {"Metric": "Trailing PE", "Value": f"{metrics.get('pe'):.2f}" if metrics.get("pe") else "-"},
+                {"Metric": "Forward PE", "Value": f"{metrics.get('forward_pe'):.2f}" if metrics.get("forward_pe") else "-"},
+                {"Metric": "PEG Ratio", "Value": f"{metrics.get('peg'):.2f}" if metrics.get("peg") else "-"},
+                {"Metric": "Price / Book", "Value": f"{metrics.get('price_to_book'):.2f}" if metrics.get("price_to_book") else "-"},
+                {"Metric": "Gross Margin", "Value": pct_format(metrics.get("gross_margin"))},
+                {"Metric": "Operating Margin", "Value": pct_format(metrics.get("operating_margin"))},
+                {"Metric": "Profit Margin", "Value": pct_format(metrics.get("profit_margin"))},
+            ])
+
+            st.dataframe(snapshot, use_container_width=True, hide_index=True)
+
+            st.subheader("Technical Timing Summary")
+
+            if technical_result:
+                tech_cols = [
+                    "Buy_Sell_Safety", "Score", "Practical_Rank_Score",
+                    "Final View", "RSI", "ADX", "Risk_Reward",
+                    "Smart_Money_Signal", "Capital_Flow_Signal",
+                    "Support", "Resistance", "Technical_Target", "Stop_Loss"
+                ]
+
+                tech_display = {
+                    col: technical_result.get(col)
+                    for col in tech_cols
+                    if col in technical_result
+                }
+
+                tech_df = pd.DataFrame([tech_display]).rename(columns=DISPLAY_COLUMN_RENAME)
+                st.dataframe(tech_df, use_container_width=True, hide_index=True)
+            else:
+                st.warning(technical_note)
+
+            b1, b2 = st.columns(2)
+
+            with b1:
+                st.subheader("Bull Case")
+                for item in bull_case:
+                    st.success(item)
+
+            with b2:
+                st.subheader("Bear Case")
+                for item in bear_case:
+                    st.error(item)
+
+            st.subheader("Conclusion")
+
+            st.markdown(
+                f"""
+                **{research_ticker} | {get_stock_name(research_ticker)}**
+
+                **Final Rating:** {rating}  
+                **Market Beast Score:** {total_score}/100  
+                **Risk Rating:** {risk_rating}  
+                **Timeframe Selected:** {research_timeframe}  
+
+                **Score Interpretation:**  
+                - 75–100 = Strong quality / attractive setup  
+                - 60–74 = Watchlist / selective buy zone  
+                - 45–59 = Neutral / wait for better price or confirmation  
+                - Below 45 = Avoid / weak setup  
+
+                **Technical Note:** {technical_note}
+                """
+            )
+
+            if notes:
+                with st.expander("Detailed Notes"):
+                    for note in notes:
+                        st.write(f"- {note}")
+
+            st.warning(
+                "This is a rule-based research engine, not financial advice. "
+                "Always check earnings dates, company news, market trend, position size, and your risk limit before buying."
+            )
+
