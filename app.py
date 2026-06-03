@@ -650,11 +650,19 @@ def normalize_user_ticker(raw_ticker, market_name):
     """
     Convert easy user input into Yahoo Finance ticker format.
 
+    US examples:
+    asana / ASANA -> ASAN
+    tesla / TESLA -> TSLA
+    snapchat -> SNAP
+
     Malaysia examples:
     4456 -> 4456.KL
     4456.kl -> 4456.KL
     dnex -> 4456.KL
-    DNEX -> 4456.KL
+
+    Singapore examples:
+    DBS -> D05.SI
+    D05 -> D05.SI
     """
     ticker = str(raw_ticker).strip().upper()
 
@@ -663,6 +671,11 @@ def normalize_user_ticker(raw_ticker, market_name):
 
     ticker = ticker.replace(" ", "")
     ticker = ticker.replace("_", "-")
+
+    # US aliases should work regardless of selected market if explicitly known.
+    # This fixes ASANA -> ASAN.
+    if ticker in US_TICKER_ALIASES:
+        return US_TICKER_ALIASES[ticker]
 
     if market_name == "Malaysia":
         ticker = ticker.replace(".KLSE", ".KL")
@@ -687,6 +700,7 @@ def normalize_user_ticker(raw_ticker, market_name):
 
         return f"{ticker}.SI"
 
+    # US normal ticker format. Yahoo uses BRK-B instead of BRK.B.
     ticker = ticker.replace(".", "-")
     return ticker
 
@@ -4963,7 +4977,7 @@ def detect_market_from_input(raw_ticker, selected_market):
     Examples:
     4456 / DNEX / 4456.KL -> Malaysia
     D05 / DBS / D05.SI -> Singapore
-    TSLA / NVDA -> US
+    ASANA / ASAN / TSLA / NVDA -> US
     """
     t = str(raw_ticker).strip().upper().replace(" ", "")
 
@@ -4973,7 +4987,13 @@ def detect_market_from_input(raw_ticker, selected_market):
     if t.endswith(".SI") or t in SINGAPORE_TICKER_ALIASES:
         return "Singapore"
 
-    if t in US_TICKER_ALIASES or t in ["ASAN", "TSLA", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "SNAP", "PLTR", "COIN", "MSTR", "AMD"]:
+    t_us = US_TICKER_ALIASES.get(t, t.replace(".", "-"))
+
+    if t in US_TICKER_ALIASES or t_us in [
+        "ASAN", "TSLA", "NVDA", "AAPL", "MSFT", "AMZN", "META",
+        "GOOGL", "GOOG", "SNAP", "PLTR", "COIN", "MSTR", "AMD",
+        "NFLX", "AVGO", "JPM", "V", "MA", "COST", "WMT", "HD"
+    ]:
         return "US"
 
     return selected_market
@@ -5408,6 +5428,7 @@ if page == "Page 3 - Watchlist / Portfolio Review":
         st.subheader("Input Preview")
         preview_df = portfolio_df.copy()
         preview_df["Stock Name"] = preview_df["Ticker"].apply(get_stock_name)
+        st.caption("Check this preview first. Example: ASANA should become ASAN.")
         st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
     if st.button("Run Portfolio Review", type="primary"):
