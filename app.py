@@ -5391,6 +5391,231 @@ def ensure_portfolio_technical_result(ticker, market_name, benchmark_df, market_
     return tech_result
 
 
+
+def get_guaranteed_practical_score(ticker, market_name):
+    """
+    Very stable Practical Score for Page 3.
+
+    This does NOT depend on benchmark, relative strength, or analyse_stock().
+    It only uses the stock's own OHLCV data, so it should return a value
+    whenever price data is available.
+
+    Max score: 30
+    """
+    try:
+        raw_df = get_data(
+            ticker,
+            period="1y",
+            interval="1d",
+            min_rows=60,
+            market_name=market_name
+        )
+
+        if raw_df is None or raw_df.empty:
+            return {
+                "Practical Score": None,
+                "Technical Score": None,
+                "Buy/Sell Safety": "No price data",
+                "RSI": None,
+                "Risk/Reward": None,
+                "Support": None,
+                "Resistance": None,
+                "Smart Money": "No data",
+                "Fallback Notes": "No OHLCV data"
+            }
+
+        df = add_indicators(raw_df)
+
+        if df is None or df.empty:
+            return {
+                "Practical Score": None,
+                "Technical Score": None,
+                "Buy/Sell Safety": "Indicator error",
+                "RSI": None,
+                "Risk/Reward": None,
+                "Support": None,
+                "Resistance": None,
+                "Smart Money": "No data",
+                "Fallback Notes": "Indicators unavailable"
+            }
+
+        latest = df.iloc[-1]
+
+        close = safe_float(latest.get("Close"))
+        ma20 = safe_float(latest.get("MA20"))
+        ma50 = safe_float(latest.get("MA50"))
+        ma200 = safe_float(latest.get("MA200"))
+        rsi = safe_float(latest.get("RSI"))
+        macd_hist = safe_float(latest.get("MACD_Hist"))
+        macd_hist_change = safe_float(latest.get("MACD_Hist_Change"))
+        rel_volume = safe_float(latest.get("Relative_Volume"))
+        adx = safe_float(latest.get("ADX"))
+        support = safe_float(latest.get("Support"))
+        resistance = safe_float(latest.get("Resistance"))
+        cmf = safe_float(latest.get("CMF"))
+        mfi = safe_float(latest.get("MFI"))
+        smart_money_score = safe_float(latest.get("Smart_Money_Flow_Score"))
+
+        if close is None:
+            return {
+                "Practical Score": None,
+                "Technical Score": None,
+                "Buy/Sell Safety": "No close price",
+                "RSI": None,
+                "Risk/Reward": None,
+                "Support": None,
+                "Resistance": None,
+                "Smart Money": "No data",
+                "Fallback Notes": "Close price unavailable"
+            }
+
+        score = 0
+        notes = []
+
+        # Trend score
+        if ma20 is not None and close > ma20:
+            score += 2
+            notes.append("Above MA20")
+        if ma50 is not None and close > ma50:
+            score += 3
+            notes.append("Above MA50")
+        if ma200 is not None and close > ma200:
+            score += 3
+            notes.append("Above MA200")
+
+        # RSI score
+        if rsi is not None:
+            if 45 <= rsi <= 65:
+                score += 4
+                notes.append("RSI healthy")
+            elif 35 <= rsi < 45:
+                score += 2
+                notes.append("RSI recovering")
+            elif 65 < rsi <= 75:
+                score += 1
+                notes.append("RSI strong but warm")
+            elif rsi > 75:
+                score -= 2
+                notes.append("RSI too hot")
+            elif rsi < 30:
+                score -= 2
+                notes.append("RSI weak")
+
+        # Momentum score
+        if macd_hist is not None and macd_hist > 0:
+            score += 3
+            notes.append("MACD positive")
+        if macd_hist_change is not None and macd_hist_change > 0:
+            score += 2
+            notes.append("MACD improving")
+
+        # Volume score
+        if rel_volume is not None:
+            if rel_volume >= 1.5:
+                score += 4
+                notes.append("Strong volume")
+            elif rel_volume >= 1.1:
+                score += 2
+                notes.append("Volume improving")
+
+        # Trend strength
+        if adx is not None:
+            if adx >= 25:
+                score += 3
+                notes.append("ADX trend strong")
+            elif adx >= 18:
+                score += 1
+                notes.append("ADX trend forming")
+
+        # Money flow
+        if cmf is not None:
+            if cmf > 0.10:
+                score += 2
+                notes.append("CMF inflow")
+            elif cmf < -0.10:
+                score -= 2
+                notes.append("CMF outflow")
+
+        if mfi is not None:
+            if 45 <= mfi <= 75:
+                score += 1
+                notes.append("MFI healthy")
+            elif mfi > 85:
+                score -= 1
+                notes.append("MFI too hot")
+
+        if smart_money_score is not None:
+            if smart_money_score > 1:
+                score += 2
+                notes.append("Smart money positive")
+            elif smart_money_score < -1:
+                score -= 2
+                notes.append("Smart money negative")
+
+        # Risk/reward
+        rr = None
+        if support is not None and resistance is not None and close is not None:
+            downside = close - support
+            upside = resistance - close
+            if downside > 0:
+                rr = upside / downside
+                if rr >= 2:
+                    score += 3
+                    notes.append("Good risk/reward")
+                elif rr >= 1:
+                    score += 1
+                    notes.append("Acceptable risk/reward")
+                elif rr < 0.7:
+                    score -= 1
+                    notes.append("Weak risk/reward")
+
+        practical = int(max(0, min(30, round(score))))
+        technical = practical
+
+        if practical >= 22:
+            safety = "Safer Buy Setup"
+        elif practical >= 15:
+            safety = "Watch Buy Setup"
+        elif practical <= 7:
+            safety = "Avoid / Weak Setup"
+        else:
+            safety = "Neutral / Wait"
+
+        if smart_money_score is None:
+            smart_money = "Neutral"
+        elif smart_money_score > 1:
+            smart_money = "Positive"
+        elif smart_money_score < -1:
+            smart_money = "Negative"
+        else:
+            smart_money = "Neutral"
+
+        return {
+            "Practical Score": practical,
+            "Technical Score": technical,
+            "Buy/Sell Safety": safety,
+            "RSI": round(rsi, 2) if rsi is not None else None,
+            "Risk/Reward": round(rr, 2) if rr is not None else None,
+            "Support": round(support, 3) if support is not None else None,
+            "Resistance": round(resistance, 3) if resistance is not None else None,
+            "Smart Money": smart_money,
+            "Fallback Notes": ", ".join(notes[:8])
+        }
+
+    except Exception as e:
+        return {
+            "Practical Score": None,
+            "Technical Score": None,
+            "Buy/Sell Safety": "Practical score error",
+            "RSI": None,
+            "Risk/Reward": None,
+            "Support": None,
+            "Resistance": None,
+            "Smart Money": "No data",
+            "Fallback Notes": str(e)[:80]
+        }
+
+
 def review_portfolio(portfolio_df, market_name, include_research_score=True):
     """
     Main portfolio review engine.
@@ -5435,6 +5660,9 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
             if tech_result:
                 latest_price = latest_price or safe_float(tech_result.get("Close"))
 
+            # Always calculate Practical Score independently for Page 3.
+            practical_data = get_guaranteed_practical_score(ticker, row_market)
+
             pl_pct = None
             pl_value = None
             position_value = None
@@ -5456,9 +5684,18 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                     technical_result=tech_result
                 )
 
+            # Build a small technical-like dict for action decision using guaranteed practical data.
+            action_tech = tech_result or {
+                "Buy_Sell_Safety": practical_data.get("Buy/Sell Safety"),
+                "Score": practical_data.get("Technical Score"),
+                "Practical_Rank_Score": practical_data.get("Practical Score"),
+                "RSI": practical_data.get("RSI"),
+                "Risk_Reward": practical_data.get("Risk/Reward"),
+            }
+
             action = decide_portfolio_action(
                 pl_pct=pl_pct,
-                technical_result=tech_result,
+                technical_result=action_tech,
                 research_score=research_score,
                 risk_rating=risk_rating
             )
@@ -5473,18 +5710,18 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Position Value": round(position_value, 2) if position_value is not None else None,
                 "P/L %": round(pl_pct, 2) if pl_pct is not None else None,
                 "P/L Value": round(pl_value, 2) if pl_value is not None else None,
-                "Buy/Sell Safety": tech_result.get("Buy_Sell_Safety") if tech_result else "No data",
-                "Technical Score": tech_result.get("Score") if tech_result else None,
-                "Practical Score": tech_result.get("Practical_Rank_Score") if tech_result else None,
+                "Buy/Sell Safety": practical_data.get("Buy/Sell Safety"),
+                "Technical Score": practical_data.get("Technical Score"),
+                "Practical Score": practical_data.get("Practical Score"),
                 "Research Score": research_score,
                 "Risk Rating": risk_rating,
-                "RSI": tech_result.get("RSI") if tech_result else None,
-                "Risk/Reward": tech_result.get("Risk_Reward") if tech_result else None,
-                "Support": tech_result.get("Support") if tech_result else None,
-                "Resistance": tech_result.get("Resistance") if tech_result else None,
-                "Smart Money": tech_result.get("Smart_Money_Signal") if tech_result else None,
-                "Data Source": "Fallback Practical" if tech_result and tech_result.get("Fallback_Used") else "Full Scanner",
-                "Notes": tech_result.get("Fallback_Notes") if tech_result and tech_result.get("Fallback_Used") else "",
+                "RSI": practical_data.get("RSI"),
+                "Risk/Reward": practical_data.get("Risk/Reward"),
+                "Support": practical_data.get("Support"),
+                "Resistance": practical_data.get("Resistance"),
+                "Smart Money": practical_data.get("Smart Money"),
+                "Data Source": "Guaranteed Practical",
+                "Notes": practical_data.get("Fallback Notes"),
                 "Action": "No price data" if latest_price is None else action,
             })
 
