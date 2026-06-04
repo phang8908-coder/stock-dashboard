@@ -4882,12 +4882,37 @@ def merge_fmp_into_info(ticker, market_name, yahoo_info):
     return info
 
 
-def get_yfinance_info(ticker):
+@st.cache_data(ttl=3600)
+def get_yfinance_info(ticker, market_name=None):
+    """
+    Fundamental info loader.
+
+    Accepts optional market_name to avoid TypeError when Page 2/Page 3 pass two arguments.
+
+    Priority:
+    1. Yahoo Finance base data
+    2. FMP enrichment if FMP_API_KEY is available and helper exists
+    """
+    yahoo_info = {}
+
     try:
         tk = yf.Ticker(ticker)
-        return tk.info or {}
+        yahoo_info = tk.info or {}
     except Exception:
-        return {}
+        yahoo_info = {}
+
+    # If FMP merge helper exists, enrich Yahoo info.
+    try:
+        if "merge_fmp_into_info" in globals():
+            return merge_fmp_into_info(ticker, market_name, yahoo_info)
+    except Exception:
+        pass
+
+    if not yahoo_info:
+        yahoo_info = {}
+
+    yahoo_info["fundamentalDataSource"] = yahoo_info.get("fundamentalDataSource", "Yahoo fallback")
+    return yahoo_info
 
 
 @st.cache_data(ttl=3600)
