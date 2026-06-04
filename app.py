@@ -2324,6 +2324,118 @@ DISPLAY_COLUMN_RENAME = {
 }
 
 
+
+def clean_page1_scanner_columns(df):
+    """
+    Clean Page 1 scanner result table.
+
+    Remove low-value / noisy columns from the main scanner view:
+    - Analyst target high/mean/low
+    - analyst recommendation details
+    - raw calculation columns
+    - duplicated technical internals
+
+    Keep decision-focused columns:
+    Stock identity, price, scores, buy/sell safety, final view,
+    smart money, support/resistance, risk/reward and key trend indicators.
+    """
+    if df is None or df.empty:
+        return df
+
+    display_df = df.copy()
+
+    # Rename for cleaner display first
+    display_df = display_df.rename(columns=DISPLAY_COLUMN_RENAME).copy()
+
+    # If Stock index is not set yet, keep Ticker / Stock Name near front.
+    preferred_cols = [
+        "Ticker",
+        "Stock Name",
+        "Stock",
+        "Close",
+        "Base Score",
+        "Practical Score",
+        "Buy/Sell Safety",
+        "Final View",
+        "Smart Money Signal",
+        "Capital Flow",
+        "Risk/Reward",
+        "Support",
+        "Resistance",
+        "Technical_Target",
+        "Stop_Loss",
+        "RSI",
+        "ADX",
+        "Rel Volume",
+        "Rel Strength",
+        "Upside %",
+        "Risk %",
+        "Market Trend",
+        "Sector",
+        "Industry",
+    ]
+
+    # Hide analyst target / recommendation / overly raw columns if present.
+    hide_keywords = [
+        "Analyst",
+        "Target High",
+        "Target Mean",
+        "Target Low",
+        "Fair Value",
+        "Recommendation",
+        "targetHigh",
+        "targetMean",
+        "targetLow",
+        "target_",
+        "Target_Source",
+        "Mean Target",
+        "High Target",
+        "Low Target",
+    ]
+
+    hide_exact = {
+        "MACD", "Signal", "MACD Hist", "MACD Hist Change",
+        "MA20", "MA50", "MA200", "BB_Upper", "BB_Lower", "BB_Width",
+        "ATR", "Volume_Avg20", "Money Flow Volume", "Buy/Sell Pressure",
+        "Smart Money Score", "Capital Flow Score", "CMF", "MFI",
+        "OBV_Change", "Practical_Notes", "Reasons",
+        "Data Source", "Fundamental Data Source",
+    }
+
+    existing_preferred = [c for c in preferred_cols if c in display_df.columns]
+
+    remaining = []
+    for c in display_df.columns:
+        if c in existing_preferred:
+            continue
+        if c in hide_exact:
+            continue
+        if any(k.lower() in str(c).lower() for k in hide_keywords):
+            continue
+        remaining.append(c)
+
+    # Keep only preferred + non-hidden remaining, but preferred first.
+    display_df = display_df[existing_preferred + remaining]
+
+    # Use Stock as frozen index if available, same as previous behavior.
+    if "Stock" not in display_df.columns:
+        if "Ticker" in display_df.columns and "Stock Name" in display_df.columns:
+            display_df["Stock"] = (
+                display_df["Ticker"].astype(str) + " | " + display_df["Stock Name"].astype(str)
+            )
+        elif "Ticker" in display_df.columns:
+            display_df["Stock"] = display_df["Ticker"].astype(str)
+
+    if "Stock" in display_df.columns:
+        display_df = display_df.set_index("Stock")
+        drop_cols = [col for col in ["Ticker", "Stock Name"] if col in display_df.columns]
+        if drop_cols:
+            display_df = display_df.drop(columns=drop_cols)
+
+    return display_df
+
+
+
 def make_display_df(df):
     """
     Rename technical column names into cleaner dashboard labels.
@@ -6841,15 +6953,24 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
             "Ticker", "Stock Name", "Market",
             "Current Price", "Buy Price", "P/L %",
             "Portfolio Health Score", "Entry Timing Score", "Research Score",
-            "Base Score", "Practical Score", "Technical Score",
-            "Buy/Sell Safety", "Action", "Data Source",
-            "Risk Rating", "Risk/Reward", "RSI",
-            "Support", "Resistance", "Smart Money",
-            "Position Value", "P/L Value", "Quantity", "Notes"
+            "Buy/Sell Safety", "Action", "Risk Rating",
+            "Smart Money", "Support", "Resistance", "Risk/Reward",
+            "Position Value", "P/L Value", "Quantity"
         ]
 
         existing_front = [c for c in front_cols if c in result_df.columns]
-        remaining_cols = [c for c in result_df.columns if c not in existing_front]
+
+        # Hide noisy calculation columns from Page 3 result table.
+        hidden_cols = [
+            "Base Score", "Practical Score", "Technical Score",
+            "RSI", "Notes", "Data Source"
+        ]
+
+        remaining_cols = [
+            c for c in result_df.columns
+            if c not in existing_front and c not in hidden_cols
+        ]
+
         result_df = result_df[existing_front + remaining_cols]
 
         result_df["Stock"] = (
@@ -6927,6 +7048,22 @@ def style_portfolio_table(df):
         if col in df.columns:
             styled = styled.map(color_score, subset=[col])
 
+    def color_rr(val):
+        try:
+            val = float(val)
+        except Exception:
+            return ""
+        if val >= 3:
+            return "color: #22C55E; font-weight: 900;"
+        if val >= 2:
+            return "color: #4ADE80; font-weight: 900;"
+        if val >= 1:
+            return "color: #F59E0B; font-weight: 800;"
+        return "color: #EF4444; font-weight: 900;"
+
+    if "Risk/Reward" in df.columns:
+        styled = styled.map(color_rr, subset=["Risk/Reward"])
+
     if "Action" in df.columns:
         styled = styled.map(color_action, subset=["Action"])
 
@@ -6945,7 +7082,7 @@ def style_portfolio_table(df):
 if page == "Page 3 - Watchlist / Portfolio Review":
     render_section_header(
         "Page 3 — Watchlist / Portfolio Review",
-        "Review stocks you own or monitor. The app combines current price, P/L, technical score, research score, risk rating, and suggested action."
+        "Review stocks you own or monitor. The app combines current price, P/L, portfolio health score, entry timing score, research score, smart money, support/resistance, risk/reward, and suggested action."
     )
 
     st.info(
@@ -6956,12 +7093,13 @@ if page == "Page 3 - Watchlist / Portfolio Review":
     with st.expander("Score Meaning"):
         st.write(
             """
-            **Portfolio Health Score** = dynamic Page 3 score for your holding/watchlist. It combines Research Score, Entry Timing Score, P/L, and risk.  
-            **Entry Timing Score** = whether now is a good time to buy/add based on chart timing and setup quality.  
+            **Portfolio Health Score** = main Page 3 score for your holding/watchlist. It combines Research Score, Entry Timing Score, P/L, and risk.  
+            **Entry Timing Score** = whether now is a good time to buy/add based on current setup quality.  
             **Research Score** = business/fundamental/valuation score from Page 2 logic.  
-            **Base Score** = Page 1 original `Score`, kept for reference/fact-checking.  
-            **Practical Score** = Page 1 original `Practical_Rank_Score`, kept for reference/fact-checking.  
-            **Technical Score** = separate technical-only trend/momentum score from the stock's own chart data.
+            **Smart Money** = buying/selling pressure signal from money-flow calculation.  
+            **Support / Resistance** = nearby technical levels for risk planning.  
+            **Risk/Reward** = upside vs downside ratio based on support/resistance.  
+            **Action** = final suggested portfolio/watchlist action.
             """
         )
 
@@ -7053,10 +7191,9 @@ if page == "Page 3 - Watchlist / Portfolio Review":
                     hide_index=False
                 )
 
-                with st.expander("Debug: Page 3 Practical Score Check"):
-                    st.write("Columns:", list(result_df.columns))
+                with st.expander("Score Check"):
                     st.dataframe(result_df[[
-                        c for c in ["Portfolio Health Score", "Entry Timing Score", "Research Score", "Base Score", "Practical Score", "Technical Score", "Buy/Sell Safety", "Data Source", "Notes"]
+                        c for c in ["Portfolio Health Score", "Entry Timing Score", "Research Score", "Buy/Sell Safety", "Action", "Smart Money", "Support", "Resistance", "Risk/Reward"]
                         if c in result_df.columns
                     ]], use_container_width=True, hide_index=False)
 
