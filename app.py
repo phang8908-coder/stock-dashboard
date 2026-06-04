@@ -2325,6 +2325,84 @@ DISPLAY_COLUMN_RENAME = {
 
 
 
+
+def delete_page1_unwanted_columns(df):
+    """
+    HARD DELETE unwanted Page 1 columns before display/export.
+
+    This removes analyst target / recommendation columns and noisy raw fields
+    from the Page 1 scanner result dataframe itself.
+    """
+    if df is None or df.empty:
+        return df
+
+    cleaned = df.copy()
+
+    delete_keywords = [
+        "analyst",
+        "target high",
+        "target mean",
+        "target low",
+        "targethigh",
+        "targetmean",
+        "targetlow",
+        "target_high",
+        "target_mean",
+        "target_low",
+        "mean target",
+        "high target",
+        "low target",
+        "fair value",
+        "recommendation",
+        "target source",
+        "analyst target",
+        "price target",
+    ]
+
+    delete_exact = {
+        "Analyst Target High",
+        "Analyst Target Mean",
+        "Analyst Target Low",
+        "Target High",
+        "Target Mean",
+        "Target Low",
+        "targetHighPrice",
+        "targetMeanPrice",
+        "targetLowPrice",
+        "target_high",
+        "target_mean",
+        "target_low",
+        "Recommendation",
+        "recommendation",
+        "recommendationKey",
+        "recommendationMean",
+        "numberOfAnalystOpinions",
+        "Analyst Rating",
+        "Target Source",
+        "analystTargetSource",
+    }
+
+    cols_to_drop = []
+
+    for col in cleaned.columns:
+        col_str = str(col).strip()
+        col_lower = col_str.lower().replace("_", " ")
+
+        if col_str in delete_exact:
+            cols_to_drop.append(col)
+            continue
+
+        if any(k in col_lower for k in delete_keywords):
+            cols_to_drop.append(col)
+            continue
+
+    if cols_to_drop:
+        cleaned = cleaned.drop(columns=list(dict.fromkeys(cols_to_drop)), errors="ignore")
+
+    return cleaned
+
+
+
 def clean_page1_scanner_columns(df):
     """
     Clean Page 1 scanner result table.
@@ -2342,9 +2420,10 @@ def clean_page1_scanner_columns(df):
     if df is None or df.empty:
         return df
 
-    display_df = df.copy()
+    # Hard delete unwanted columns first, then rename/display.
+    display_df = delete_page1_unwanted_columns(df)
 
-    # Rename for cleaner display first
+    # Rename for cleaner display
     display_df = display_df.rename(columns=DISPLAY_COLUMN_RENAME).copy()
 
     # If Stock index is not set yet, keep Ticker / Stock Name near front.
@@ -3602,6 +3681,7 @@ if page == "Page 1 - Market Scanner":
                 st.error("No valid stock results generated.")
             else:
                 df_result = pd.DataFrame(results)
+                df_result = delete_page1_unwanted_columns(df_result)
 
                 df_result[["Practical_Rank_Score", "Practical_Notes"]] = df_result.apply(
                     lambda row: pd.Series(calculate_practical_rank(row, market_name)),
@@ -3752,7 +3832,7 @@ if page == "Page 1 - Market Scanner":
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
-                csv_data = df_result.to_csv(index=False).encode("utf-8")
+                csv_data = delete_page1_unwanted_columns(df_result).to_csv(index=False).encode("utf-8")
 
                 st.download_button(
                     label="Download Full Result as CSV",
