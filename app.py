@@ -2301,6 +2301,7 @@ def dataframe_to_excel(df, sheet_name):
 # ============================================================
 
 DISPLAY_COLUMN_RENAME = {
+    "Score": "Base Score",
     "Name": "Stock Name",
     "Stock": "Stock",
     "Buy_Sell_Safety": "Buy/Sell Safety",
@@ -2417,7 +2418,7 @@ def style_scanner_table(df):
     if "Buy/Sell Safety" in df.columns:
         styled = styled.map(color_safety, subset=["Buy/Sell Safety"])
 
-    score_cols = [c for c in ["Score", "Practical Score"] if c in df.columns]
+    score_cols = [c for c in ["Base Score", "Practical Score"] if c in df.columns]
     if score_cols:
         styled = styled.map(color_score, subset=score_cols)
 
@@ -4365,6 +4366,21 @@ def pct_format(x):
     return f"{x * 100:.2f}%"
 
 
+
+def price_format(x):
+    x = safe_float(x)
+    if x is None:
+        return "Unavailable"
+    return f"{x:.2f}"
+
+def text_or_unavailable(x):
+    if x is None:
+        return "Unavailable"
+    if str(x).strip() == "" or str(x).lower() == "none":
+        return "Unavailable"
+    return str(x)
+
+
 @st.cache_data(ttl=3600)
 
 # ============================================================
@@ -4495,6 +4511,38 @@ def get_fmp_financial_growth(ticker, market_name=None):
         return {}
 
 
+
+@st.cache_data(ttl=3600)
+def get_fmp_analyst_estimates(ticker, market_name=None):
+    """
+    FMP analyst estimates / target data fallback.
+    Availability depends on FMP plan and ticker coverage.
+    """
+    api_key = get_secret_value("FMP_API_KEY")
+
+    if not api_key:
+        return {}
+
+    try:
+        symbol = convert_to_fmp_symbol(ticker, market_name)
+
+        # Try price target summary first
+        url = f"https://financialmodelingprep.com/api/v4/price-target-summary"
+        params = {"symbol": symbol, "apikey": api_key}
+        r = requests.get(url, params=params, timeout=15)
+
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, list) and len(data) > 0:
+                return data[0] or {}
+            if isinstance(data, dict):
+                return data
+
+        return {}
+    except Exception:
+        return {}
+
+
 def merge_fmp_into_info(ticker, market_name, yahoo_info):
     """
     Merge FMP profile/quote/ratio/growth into Yahoo-like info dict.
@@ -4571,8 +4619,42 @@ def merge_fmp_into_info(ticker, market_name, yahoo_info):
         info["fmpNetIncomeGrowth"] = growth.get("netIncomeGrowth")
         info["fmpFreeCashFlowGrowth"] = growth.get("freeCashFlowGrowth")
 
+    # Analyst target fallback from FMP when available.
+    estimates = get_fmp_analyst_estimates(ticker, market_name)
+
+    if estimates:
+        # FMP field names can vary by endpoint/plan.
+        high_target = (
+            estimates.get("targetHigh")
+            or estimates.get("priceTargetHigh")
+            or estimates.get("target_high")
+        )
+        low_target = (
+            estimates.get("targetLow")
+            or estimates.get("priceTargetLow")
+            or estimates.get("target_low")
+        )
+        mean_target = (
+            estimates.get("targetMean")
+            or estimates.get("priceTargetAverage")
+            or estimates.get("targetConsensus")
+            or estimates.get("target_mean")
+        )
+
+        if high_target is not None:
+            info["targetHighPrice"] = high_target
+        if low_target is not None:
+            info["targetLowPrice"] = low_target
+        if mean_target is not None:
+            info["targetMeanPrice"] = mean_target
+
+        info["analystTargetSource"] = "FMP"
+
+    if info.get("targetMeanPrice") is not None and not info.get("analystTargetSource"):
+        info["analystTargetSource"] = "Yahoo"
+
     # Data source label
-    if profile or quote or ratios or growth:
+    if profile or quote or ratios or growth or estimates:
         info["fundamentalDataSource"] = "FMP + Yahoo fallback"
     else:
         info["fundamentalDataSource"] = "Yahoo fallback"
@@ -4679,7 +4761,11 @@ def apply_page5_fallbacks(metrics, technical_result, rating, ticker, market_name
         else:
             metrics["target_source"] = "Unavailable"
     else:
-        metrics["target_source"] = "Analyst Target" if metrics.get("target_mean") is not None else "Unavailable"
+        metrics["target_source"] = (
+            metrics.get("analyst_target_source")
+            if metrics.get("target_mean") is not None
+            else "Unavailable"
+        )
 
     # 3. Expected upside fallback
     if metrics.get("implied_upside") is None:
@@ -4873,6 +4959,9 @@ def score_research_fundamentals(info, financials, balance_sheet, cashflow):
         "market_cap": market_cap,
         "current_price": current_price,
         "target_mean": target_mean,
+        "target_high": safe_float(info.get("targetHighPrice")),
+        "target_low": safe_float(info.get("targetLowPrice")),
+        "analyst_target_source": info.get("analystTargetSource", "Unavailable"),
         "implied_upside": implied_upside,
         "pe": pe,
         "forward_pe": forward_pe,
@@ -5088,6 +5177,8 @@ if page == "Page 2 - Research Analyzer":
 
             current_price = metrics.get("current_price")
             target_mean = metrics.get("target_mean")
+            target_high = metrics.get("target_high")
+            target_low = metrics.get("target_low")
             implied_upside = metrics.get("implied_upside")
 
             m1, m2, m3, m4 = st.columns(4)
@@ -5108,8 +5199,8 @@ if page == "Page 2 - Research Analyzer":
             with p2:
                 target_source = metrics.get("target_source", "Target")
                 st.metric(
-                    f"Fair Value / Target ({target_source})",
-                    f"{target_mean:.2f}" if target_mean else "-"
+                    f"Target Mean ({target_source})",
+                    price_format(target_mean)
                 )
             with p3:
                 st.metric("Expected Upside", pct_format(implied_upside))
@@ -5117,8 +5208,26 @@ if page == "Page 2 - Research Analyzer":
                 rec_source = metrics.get("recommendation_source", "Recommendation")
                 st.metric(
                     f"Recommendation ({rec_source})",
-                    str(metrics.get("recommendation") or "-").upper()
+                    text_or_unavailable(metrics.get("recommendation")).upper()
                 )
+
+            st.subheader("Analyst Target Detail")
+
+            target_detail_df = pd.DataFrame([
+                {"Target Type": "High", "Value": price_format(metrics.get("target_high"))},
+                {"Target Type": "Mean", "Value": price_format(metrics.get("target_mean"))},
+                {"Target Type": "Low", "Value": price_format(metrics.get("target_low"))},
+                {"Target Type": "Source", "Value": metrics.get("target_source", "Unavailable")},
+            ])
+
+            st.dataframe(target_detail_df, use_container_width=True, hide_index=True)
+
+            if metrics.get("target_mean") is None:
+                st.info(
+                    "Analyst target is unavailable from the connected data providers for this ticker. "
+                    "This is common for some Malaysia/Singapore stocks, smaller-cap stocks, or API plans without analyst estimate coverage."
+                )
+
 
             st.subheader("Score Breakdown")
 
@@ -5144,6 +5253,9 @@ if page == "Page 2 - Research Analyzer":
                 {"Metric": "Gross Margin", "Value": pct_format(metrics.get("gross_margin"))},
                 {"Metric": "Operating Margin", "Value": pct_format(metrics.get("operating_margin"))},
                 {"Metric": "Profit Margin", "Value": pct_format(metrics.get("profit_margin"))},
+                {"Metric": "Target High", "Value": price_format(metrics.get("target_high"))},
+                {"Metric": "Target Mean", "Value": price_format(metrics.get("target_mean"))},
+                {"Metric": "Target Low", "Value": price_format(metrics.get("target_low"))},
                 {"Metric": "Target Source", "Value": metrics.get("target_source", "-")},
                 {"Metric": "Recommendation Source", "Value": metrics.get("recommendation_source", "-")},
                 {"Metric": "Fundamental Data Source", "Value": info.get("fundamentalDataSource", "Yahoo fallback")},
@@ -5936,6 +6048,7 @@ def get_portfolio_score_tally_with_page1(ticker, market_name, benchmark_df, mark
         "Close": None,
         "Base Score": fallback.get("Technical Score"),
         "Practical Score": fallback.get("Practical Score"),
+        "Technical Score": calculate_separate_technical_score(ticker, market_name) or fallback.get("Technical Score"),
         "Buy/Sell Safety": fallback.get("Buy/Sell Safety"),
         "RSI": fallback.get("RSI"),
         "Risk/Reward": fallback.get("Risk/Reward"),
@@ -6047,6 +6160,7 @@ def get_page3_score_with_same_formula_first(ticker, market_name):
             "Close": None,
             "Base Score": emergency.get("Base Score"),
             "Practical Score": emergency.get("Practical Score"),
+            "Technical Score": calculate_separate_technical_score(ticker, market_name) or emergency.get("Base Score"),
             "Buy/Sell Safety": emergency.get("Buy/Sell Safety"),
             "RSI": emergency.get("RSI"),
             "Risk/Reward": emergency.get("Risk/Reward"),
@@ -6112,6 +6226,26 @@ def final_visible_practical_score(score_data):
     return None
 
 
+
+def final_visible_technical_score(score_data):
+    """
+    Page 3 Technical Score.
+    This is separate from Base Score.
+    """
+    if score_data is None:
+        return None
+
+    candidates = [score_data.get("Technical Score")]
+
+    for c in candidates:
+        val = safe_float(c)
+        if val is not None:
+            return round(val, 2)
+
+    return None
+
+
+
 def final_visible_base_score(score_data):
     """
     Page 3 Base Score.
@@ -6135,6 +6269,101 @@ def final_visible_base_score(score_data):
             return round(val, 2)
 
     return None
+
+
+
+
+def calculate_separate_technical_score(ticker, market_name):
+    """
+    Separate Technical Score for Page 3.
+    This is NOT the same as Base Score.
+
+    Base Score = Page 1 original Score.
+    Practical Score = Page 1 Practical_Rank_Score.
+    Technical Score = separate trend/momentum score from own OHLCV.
+
+    Max: 30
+    """
+    try:
+        raw_df = get_data(
+            ticker,
+            period="1y",
+            interval="1d",
+            min_rows=30,
+            market_name=market_name
+        )
+
+        if raw_df is None or raw_df.empty:
+            return None
+
+        df = add_indicators(raw_df)
+
+        if df is None or df.empty:
+            return None
+
+        latest = df.iloc[-1]
+
+        close = safe_float(latest.get("Close"))
+        ma20 = safe_float(latest.get("MA20"))
+        ma50 = safe_float(latest.get("MA50"))
+        ma200 = safe_float(latest.get("MA200"))
+        rsi = safe_float(latest.get("RSI"))
+        macd_hist = safe_float(latest.get("MACD_Hist"))
+        macd_hist_change = safe_float(latest.get("MACD_Hist_Change"))
+        rel_volume = safe_float(latest.get("Relative_Volume"))
+        adx = safe_float(latest.get("ADX"))
+        cmf = safe_float(latest.get("CMF"))
+
+        if close is None:
+            return None
+
+        score = 0
+
+        # Trend 10
+        if ma20 is not None and close > ma20:
+            score += 3
+        if ma50 is not None and close > ma50:
+            score += 3
+        if ma200 is not None and close > ma200:
+            score += 4
+
+        # Momentum 8
+        if rsi is not None:
+            if 45 <= rsi <= 65:
+                score += 4
+            elif 35 <= rsi < 45 or 65 < rsi <= 75:
+                score += 2
+            elif rsi > 80:
+                score -= 2
+
+        if macd_hist is not None and macd_hist > 0:
+            score += 2
+        if macd_hist_change is not None and macd_hist_change > 0:
+            score += 2
+
+        # Volume / trend strength 8
+        if rel_volume is not None:
+            if rel_volume >= 1.5:
+                score += 3
+            elif rel_volume >= 1.1:
+                score += 1
+
+        if adx is not None:
+            if adx >= 25:
+                score += 3
+            elif adx >= 18:
+                score += 1
+
+        if cmf is not None:
+            if cmf > 0.1:
+                score += 2
+            elif cmf < -0.1:
+                score -= 2
+
+        return int(max(0, min(30, round(score))))
+
+    except Exception:
+        return None
 
 
 
@@ -6395,6 +6624,7 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Buy/Sell Safety": score_data.get("Buy/Sell Safety"),
                 "Base Score": final_visible_base_score(score_data),
                 "Practical Score": final_visible_practical_score(score_data),
+                "Technical Score": final_visible_technical_score(score_data),
                 "Research Score": research_score,
                 "Risk Rating": risk_rating,
                 "RSI": score_data.get("RSI"),
@@ -6438,7 +6668,7 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
         front_cols = [
             "Ticker", "Stock Name", "Market",
             "Current Price", "Buy Price", "P/L %",
-            "Base Score", "Practical Score", "Research Score",
+            "Base Score", "Practical Score", "Technical Score", "Research Score",
             "Buy/Sell Safety", "Action", "Data Source",
             "Risk Rating", "Risk/Reward", "RSI",
             "Support", "Resistance", "Smart Money",
@@ -6539,8 +6769,9 @@ if page == "Page 3 - Watchlist / Portfolio Review":
     with st.expander("Score Meaning"):
         st.write(
             """
-            **Base Score** = Page 1 original `Score`. It is the main technical scanner score.  
+            **Base Score** = Page 1 original `Score`. It is the main scanner score.  
             **Practical Score** = Page 1 original `Practical_Rank_Score`. It is the entry-quality score.  
+            **Technical Score** = separate technical-only trend/momentum score from the stock's own chart data.  
             **Research Score** = Page 2 business/fundamental/valuation score.  
             **Buy/Sell Safety** = simplified action label from the scanner setup.
             """
@@ -6642,7 +6873,7 @@ if page == "Page 3 - Watchlist / Portfolio Review":
                 with st.expander("Debug: Page 3 Practical Score Check"):
                     st.write("Columns:", list(result_df.columns))
                     st.dataframe(result_df[[
-                        c for c in ["Base Score", "Practical Score", "Research Score", "Buy/Sell Safety", "Data Source", "Notes"]
+                        c for c in ["Base Score", "Practical Score", "Technical Score", "Research Score", "Buy/Sell Safety", "Data Source", "Notes"]
                         if c in result_df.columns
                     ]], use_container_width=True, hide_index=False)
 
