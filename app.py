@@ -4381,6 +4381,34 @@ def text_or_unavailable(x):
     return str(x)
 
 
+
+
+def safe_metric_price(x):
+    """Safe price display for Streamlit metric. Prevents TypeError when x is None/string."""
+    val = safe_float(x)
+    if val is None:
+        return "Unavailable"
+    return f"{val:.2f}"
+
+
+def safe_metric_pct(x):
+    """Safe percent display for Streamlit metric."""
+    val = safe_float(x)
+    if val is None:
+        return "Unavailable"
+    return f"{val * 100:.2f}%"
+
+
+def safe_metric_text(x):
+    """Safe text display for Streamlit metric."""
+    if x is None:
+        return "Unavailable"
+    txt = str(x).strip()
+    if txt == "" or txt.lower() in ["none", "nan", "null"]:
+        return "Unavailable"
+    return txt
+
+
 @st.cache_data(ttl=3600)
 
 # ============================================================
@@ -5195,28 +5223,28 @@ if page == "Page 2 - Research Analyzer":
             p1, p2, p3, p4 = st.columns(4)
 
             with p1:
-                st.metric("Current Price", f"{current_price:.2f}" if current_price else "-")
+                st.metric("Current Price", safe_metric_price(current_price))
             with p2:
                 target_source = metrics.get("target_source", "Target")
                 st.metric(
-                    f"Target Mean ({target_source})",
-                    price_format(target_mean)
+                    f"Target Mean ({safe_metric_text(target_source)})",
+                    safe_metric_price(target_mean)
                 )
             with p3:
-                st.metric("Expected Upside", pct_format(implied_upside))
+                st.metric("Expected Upside", safe_metric_pct(implied_upside))
             with p4:
                 rec_source = metrics.get("recommendation_source", "Recommendation")
                 st.metric(
                     f"Recommendation ({rec_source})",
-                    text_or_unavailable(metrics.get("recommendation")).upper()
+                    safe_metric_text(metrics.get("recommendation")).upper()
                 )
 
             st.subheader("Analyst Target Detail")
 
             target_detail_df = pd.DataFrame([
-                {"Target Type": "High", "Value": price_format(metrics.get("target_high"))},
-                {"Target Type": "Mean", "Value": price_format(metrics.get("target_mean"))},
-                {"Target Type": "Low", "Value": price_format(metrics.get("target_low"))},
+                {"Target Type": "High", "Value": safe_metric_price(metrics.get("target_high"))},
+                {"Target Type": "Mean", "Value": safe_metric_price(metrics.get("target_mean"))},
+                {"Target Type": "Low", "Value": safe_metric_price(metrics.get("target_low"))},
                 {"Target Type": "Source", "Value": metrics.get("target_source", "Unavailable")},
             ])
 
@@ -5246,10 +5274,10 @@ if page == "Page 2 - Research Analyzer":
                 {"Metric": "Market Cap", "Value": format_large_number(metrics.get("market_cap"))},
                 {"Metric": "Total Cash", "Value": format_large_number(metrics.get("total_cash"))},
                 {"Metric": "Total Debt", "Value": format_large_number(metrics.get("total_debt"))},
-                {"Metric": "Trailing PE", "Value": f"{metrics.get('pe'):.2f}" if metrics.get("pe") else "-"},
-                {"Metric": "Forward PE", "Value": f"{metrics.get('forward_pe'):.2f}" if metrics.get("forward_pe") else "-"},
-                {"Metric": "PEG Ratio", "Value": f"{metrics.get('peg'):.2f}" if metrics.get("peg") else "-"},
-                {"Metric": "Price / Book", "Value": f"{metrics.get('price_to_book'):.2f}" if metrics.get("price_to_book") else "-"},
+                {"Metric": "Trailing PE", "Value": safe_metric_price(metrics.get("pe"))},
+                {"Metric": "Forward PE", "Value": safe_metric_price(metrics.get("forward_pe"))},
+                {"Metric": "PEG Ratio", "Value": safe_metric_price(metrics.get("peg"))},
+                {"Metric": "Price / Book", "Value": safe_metric_price(metrics.get("price_to_book"))},
                 {"Metric": "Gross Margin", "Value": pct_format(metrics.get("gross_margin"))},
                 {"Metric": "Operating Margin", "Value": pct_format(metrics.get("operating_margin"))},
                 {"Metric": "Profit Margin", "Value": pct_format(metrics.get("profit_margin"))},
@@ -5456,8 +5484,14 @@ def build_portfolio_from_text(text_input, market_name):
 
 def get_research_score_for_portfolio(ticker, market_name, technical_result=None):
     """
-    Lightweight research score for portfolio review.
-    Uses Page 2 fundamental engine if data available.
+    Robust Research Score for Page 3.
+
+    Purpose:
+    - Bring back Research Score in Portfolio Review.
+    - Uses the same Page 2 fundamental scoring engine where possible.
+    - If fundamental data is incomplete, returns a neutral technical-adjusted score instead of blank.
+
+    Score range: 0-100
     """
     try:
         info = get_yfinance_info(ticker, market_name)
@@ -5470,21 +5504,159 @@ def get_research_score_for_portfolio(ticker, market_name, technical_result=None)
             cashflow=cashflow
         )
 
-        if technical_result:
-            risk_rating = estimate_risk_rating(metrics, technical_result)
-        else:
-            risk_rating = estimate_risk_rating(metrics, None)
+        raw_score = int(round(sum(score_parts.values())))
 
-        total_score = int(round(sum(score_parts.values())))
+        # Page 2 fundamental score parts are around max 90 before technical.
+        # Normalize to a 100-style scale while keeping conservative cap.
+        research_score = int(max(0, min(100, round(raw_score / 90 * 100))))
 
-        # Page 2 research score has max 90 before technical if not added.
-        # Normalize lightly to 100-style by keeping as-is and cap.
-        total_score = max(0, min(100, total_score))
+        risk_rating = estimate_risk_rating(metrics, technical_result)
 
-        return total_score, risk_rating
+        # If data is very incomplete, raw score may be too neutral.
+        # Keep it visible but mark risk unknown/medium.
+        if research_score <= 0:
+            research_score = 50
+            risk_rating = "Unknown"
+
+        return research_score, risk_rating
 
     except Exception:
-        return None, "Unknown"
+        # Last fallback: avoid blank Research Score.
+        if technical_result:
+            try:
+                base = safe_float(technical_result.get("Score"), 0)
+                practical = safe_float(technical_result.get("Practical_Rank_Score"), 0)
+                fallback_score = int(max(0, min(100, 45 + base + practical / 2)))
+                return fallback_score, "Unknown"
+            except Exception:
+                pass
+
+        return 50, "Unknown"
+
+
+def calculate_entry_timing_score(score_data):
+    """
+    Entry Timing Score:
+    Is now a good time to buy/add?
+    Uses chart timing, risk/reward, RSI and safety label.
+    Score range: 0-100
+    """
+    if score_data is None:
+        return 0
+
+    score = 0
+    safety = str(score_data.get("Buy/Sell Safety", ""))
+    rsi = safe_float(score_data.get("RSI"))
+    rr = safe_float(score_data.get("Risk/Reward"))
+    base_score = safe_float(score_data.get("Base Score"))
+    practical = safe_float(score_data.get("Practical Score"))
+    technical = safe_float(score_data.get("Technical Score"))
+
+    if safety == "Safer Buy Setup":
+        score += 30
+    elif safety == "Watch Buy Setup":
+        score += 22
+    elif safety == "Neutral / Wait":
+        score += 12
+    elif "Avoid" in safety or "Sell" in safety:
+        score += 3
+    else:
+        score += 10
+
+    if practical is not None:
+        score += min(25, practical)
+
+    if base_score is not None:
+        score += min(15, base_score)
+
+    if technical is not None:
+        score += min(15, technical / 2)
+
+    if rr is not None:
+        if rr >= 3:
+            score += 15
+        elif rr >= 2:
+            score += 10
+        elif rr >= 1:
+            score += 5
+        elif rr < 0.7:
+            score -= 8
+
+    if rsi is not None:
+        if 45 <= rsi <= 65:
+            score += 10
+        elif 35 <= rsi < 45:
+            score += 5
+        elif rsi > 75:
+            score -= 10
+        elif rsi < 30:
+            score -= 8
+
+    return int(max(0, min(100, round(score))))
+
+
+def calculate_portfolio_health_score(pl_pct, research_score, entry_timing_score, risk_rating):
+    """
+    Portfolio Health Score:
+    Dynamic score for holdings/watchlist.
+
+    It combines:
+    - Research Score, business quality
+    - Entry Timing Score, current chart timing
+    - P/L condition, whether your holding is healthy
+    - Risk rating
+
+    Score range: 0-100
+    """
+    research_score = safe_float(research_score, 50)
+    entry_timing_score = safe_float(entry_timing_score, 50)
+
+    # Base weighting
+    score = research_score * 0.45 + entry_timing_score * 0.35
+
+    # P/L component
+    if pl_pct is None:
+        score += 10  # watchlist, no position
+    else:
+        if pl_pct >= 20:
+            score += 15
+        elif pl_pct >= 10:
+            score += 12
+        elif pl_pct >= 0:
+            score += 8
+        elif pl_pct >= -5:
+            score += 3
+        elif pl_pct <= -10:
+            score -= 10
+        else:
+            score -= 3
+
+    # Risk adjustment
+    if risk_rating == "Low":
+        score += 5
+    elif risk_rating == "Medium":
+        score += 0
+    elif risk_rating == "High":
+        score -= 12
+    else:
+        score -= 2
+
+    return int(max(0, min(100, round(score))))
+
+
+def portfolio_health_label(score):
+    score = safe_float(score, 0)
+
+    if score >= 80:
+        return "Strong Hold / Add on Pullback"
+    if score >= 65:
+        return "Healthy Hold"
+    if score >= 50:
+        return "Monitor / Selective"
+    if score >= 35:
+        return "Weak / Review"
+    return "High Risk / Avoid Add"
+
 
 
 def decide_portfolio_action(pl_pct, technical_result, research_score, risk_rating):
@@ -6596,20 +6768,16 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                     technical_result=tech_result
                 )
 
-            action_tech = tech_result or {
-                "Buy_Sell_Safety": score_data.get("Buy/Sell Safety"),
-                "Score": score_data.get("Technical Score"),
-                "Practical_Rank_Score": score_data.get("Practical Score"),
-                "RSI": score_data.get("RSI"),
-                "Risk_Reward": score_data.get("Risk/Reward"),
-            }
-
-            action = decide_portfolio_action(
+            # Dynamic Page 3 portfolio scoring
+            entry_timing_score = calculate_entry_timing_score(score_data)
+            portfolio_health_score = calculate_portfolio_health_score(
                 pl_pct=pl_pct,
-                technical_result=action_tech,
                 research_score=research_score,
+                entry_timing_score=entry_timing_score,
                 risk_rating=risk_rating
             )
+
+            action = portfolio_health_label(portfolio_health_score)
 
             rows.append({
                 "Ticker": ticker,
@@ -6621,6 +6789,8 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Position Value": round(position_value, 2) if position_value is not None else None,
                 "P/L %": round(pl_pct, 2) if pl_pct is not None else None,
                 "P/L Value": round(pl_value, 2) if pl_value is not None else None,
+                "Portfolio Health Score": portfolio_health_score,
+                "Entry Timing Score": entry_timing_score,
                 "Buy/Sell Safety": score_data.get("Buy/Sell Safety"),
                 "Base Score": final_visible_base_score(score_data),
                 "Practical Score": final_visible_practical_score(score_data),
@@ -6648,6 +6818,8 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
                 "Position Value": None,
                 "P/L %": None,
                 "P/L Value": None,
+                "Portfolio Health Score": 0,
+                "Entry Timing Score": 0,
                 "Buy/Sell Safety": "Error",
                 "Technical Score": None,
                 "Practical Score": None,
@@ -6668,7 +6840,8 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
         front_cols = [
             "Ticker", "Stock Name", "Market",
             "Current Price", "Buy Price", "P/L %",
-            "Base Score", "Practical Score", "Technical Score", "Research Score",
+            "Portfolio Health Score", "Entry Timing Score", "Research Score",
+            "Base Score", "Practical Score", "Technical Score",
             "Buy/Sell Safety", "Action", "Data Source",
             "Risk Rating", "Risk/Reward", "RSI",
             "Support", "Resistance", "Smart Money",
@@ -6695,11 +6868,6 @@ def review_portfolio(portfolio_df, market_name, include_research_score=True):
 def style_portfolio_table(df):
     """
     Safe portfolio table styling.
-
-    Important:
-    Only numeric columns are formatted as numbers.
-    Text columns like Action, Data Source, Notes must not use {:,.2f},
-    otherwise Streamlit Cloud can raise ValueError.
     """
     if df is None or df.empty:
         return df
@@ -6720,29 +6888,48 @@ def style_portfolio_table(df):
             return "color: #EF4444; font-weight: 900;"
         return "color: #F59E0B; font-weight: 800;"
 
+    def color_score(val):
+        try:
+            val = float(val)
+        except Exception:
+            return ""
+
+        if val >= 80:
+            return "color: #22C55E; font-weight: 900;"
+        if val >= 65:
+            return "color: #4ADE80; font-weight: 900;"
+        if val >= 50:
+            return "color: #38BDF8; font-weight: 800;"
+        if val >= 35:
+            return "color: #F59E0B; font-weight: 800;"
+        return "color: #EF4444; font-weight: 900;"
+
     def color_action(val):
         val = str(val)
 
-        if "Add" in val or "Strong" in val or "Hold Winner" in val:
+        if "Strong" in val or "Healthy" in val or "Add" in val:
             return "background-color: #14532D; color: #DCFCE7; font-weight: 900;"
-        if "Take" in val:
+        if "Monitor" in val or "Selective" in val:
+            return "background-color: #1E3A8A; color: #DBEAFE; font-weight: 900;"
+        if "Review" in val or "Weak" in val:
             return "background-color: #78350F; color: #FEF3C7; font-weight: 900;"
-        if "Cut" in val or "Reduce" in val or "Avoid" in val or "No price" in val:
+        if "Risk" in val or "Avoid" in val or "No price" in val:
             return "background-color: #7F1D1D; color: #FEE2E2; font-weight: 900;"
         return "background-color: #334155; color: #E5E7EB; font-weight: 800;"
 
     styled = df.style
 
-    if "P/L %" in df.columns:
-        styled = styled.map(color_pl, subset=["P/L %"])
+    for col in ["P/L %", "P/L Value"]:
+        if col in df.columns:
+            styled = styled.map(color_pl, subset=[col])
 
-    if "P/L Value" in df.columns:
-        styled = styled.map(color_pl, subset=["P/L Value"])
+    for col in ["Portfolio Health Score", "Entry Timing Score", "Research Score"]:
+        if col in df.columns:
+            styled = styled.map(color_score, subset=[col])
 
     if "Action" in df.columns:
         styled = styled.map(color_action, subset=["Action"])
 
-    # Format only actual numeric columns.
     numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
 
     format_dict = {}
@@ -6769,11 +6956,12 @@ if page == "Page 3 - Watchlist / Portfolio Review":
     with st.expander("Score Meaning"):
         st.write(
             """
-            **Base Score** = Page 1 original `Score`. It is the main scanner score.  
-            **Practical Score** = Page 1 original `Practical_Rank_Score`. It is the entry-quality score.  
-            **Technical Score** = separate technical-only trend/momentum score from the stock's own chart data.  
-            **Research Score** = Page 2 business/fundamental/valuation score.  
-            **Buy/Sell Safety** = simplified action label from the scanner setup.
+            **Portfolio Health Score** = dynamic Page 3 score for your holding/watchlist. It combines Research Score, Entry Timing Score, P/L, and risk.  
+            **Entry Timing Score** = whether now is a good time to buy/add based on chart timing and setup quality.  
+            **Research Score** = business/fundamental/valuation score from Page 2 logic.  
+            **Base Score** = Page 1 original `Score`, kept for reference/fact-checking.  
+            **Practical Score** = Page 1 original `Practical_Rank_Score`, kept for reference/fact-checking.  
+            **Technical Score** = separate technical-only trend/momentum score from the stock's own chart data.
             """
         )
 
@@ -6853,15 +7041,10 @@ if page == "Page 3 - Watchlist / Portfolio Review":
             else:
                 st.subheader("Portfolio / Watchlist Review Result")
 
-                if "Practical Score" not in result_df.columns:
-                    st.error("Practical Score column was not created. Please check the app code.")
-                else:
-                    zero_score_count = (pd.to_numeric(result_df["Practical Score"], errors="coerce").fillna(0) == 0).sum()
-                    if zero_score_count > 0:
-                        st.info(
-                            f"{zero_score_count} row(s) received 0 Practical Score because full technical data was unavailable. "
-                            "Check ticker format and the Data Source / Notes columns."
-                        )
+                if "Research Score" not in result_df.columns:
+                    st.warning("Research Score column was not created. Fundamental data may be unavailable.")
+                if "Portfolio Health Score" not in result_df.columns:
+                    st.error("Portfolio Health Score column was not created. Please check the app code.")
 
                 st.dataframe(
                     style_portfolio_table(result_df),
@@ -6873,7 +7056,7 @@ if page == "Page 3 - Watchlist / Portfolio Review":
                 with st.expander("Debug: Page 3 Practical Score Check"):
                     st.write("Columns:", list(result_df.columns))
                     st.dataframe(result_df[[
-                        c for c in ["Base Score", "Practical Score", "Technical Score", "Research Score", "Buy/Sell Safety", "Data Source", "Notes"]
+                        c for c in ["Portfolio Health Score", "Entry Timing Score", "Research Score", "Base Score", "Practical Score", "Technical Score", "Buy/Sell Safety", "Data Source", "Notes"]
                         if c in result_df.columns
                     ]], use_container_width=True, hide_index=False)
 
