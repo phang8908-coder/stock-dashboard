@@ -14,6 +14,25 @@ from plotly.subplots import make_subplots
 warnings.filterwarnings("ignore")
 
 
+
+# ============================================================
+# API Key / Secrets Helper
+# ============================================================
+
+def get_secret_value(key_name, default=None):
+    """
+    Safe Streamlit secrets getter.
+    Works locally even when st.secrets is not configured.
+    """
+    try:
+        if key_name in st.secrets:
+            return st.secrets[key_name]
+    except Exception:
+        pass
+    return default
+
+
+
 # ============================================================
 # Streamlit Page Setup
 # ============================================================
@@ -203,7 +222,7 @@ st.warning(
 
 st.caption(
     "Data sources with automatic fallback. US: Yahoo Finance, then Stooq, then Alpha Vantage. "
-    "Malaysia .KL: Yahoo Finance, then EODHD, then iTick, then Alpha Vantage. Singapore .SI: Yahoo Finance, then EODHD, then Alpha Vantage. "
+    "Malaysia .KL: EODHD, then Yahoo Finance, then iTick, then Alpha Vantage. Singapore .SI: EODHD, then Yahoo Finance, then Alpha Vantage. "
     "Fallback providers require their own free API key in .streamlit/secrets.toml; "
     "without a key, that provider is skipped."
 )
@@ -1371,6 +1390,12 @@ def get_data(ticker, period="2y", interval="1d", min_rows=120,
     # "Auto" and "Auto" both use the full market-aware chain.
 
     # --- Auto chain ---
+    # Priority: EODHD first if API key exists, then Yahoo, then Stooq/Alpha backup.
+    df = get_data_eodhd(ticker, period=period, interval=interval,
+                        min_rows=min_rows, market_name=market_name)
+    if df is not None:
+        return df
+
     df = get_data_yahoo(ticker, period=period, interval=interval, min_rows=min_rows)
     if df is not None:
         return df
@@ -2965,6 +2990,20 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Data Providers")
+eodhd_status = "✅" if get_secret_value("EODHD_API_KEY") else "⚠️"
+fmp_status = "✅" if get_secret_value("FMP_API_KEY") else "⚠️"
+alpha_status = "✅" if get_secret_value("ALPHAVANTAGE_API_KEY") else "⚠️"
+
+st.sidebar.caption(f"{eodhd_status} EODHD price data")
+st.sidebar.caption(f"{fmp_status} FMP fundamentals")
+st.sidebar.caption(f"{alpha_status} Alpha Vantage backup")
+st.sidebar.caption("✅ Yahoo fallback")
+st.sidebar.caption("✅ Stooq US fallback")
+
+
 page = st.sidebar.radio(
     "Choose Module",
     [
@@ -4223,7 +4262,7 @@ if page == "Page 4 - Technical Chart":
                 "Data source",
                 ["Auto", "Yahoo Finance", "EODHD", "iTick", "Alpha Vantage"],
                 index=0,
-                help="Auto = Yahoo, then EODHD, then iTick, then Alpha Vantage. "
+                help="Auto = EODHD, then Yahoo, then iTick, then Alpha Vantage. "
                      "Single providers need their API key in secrets.toml."
             )
         elif chart_market == "Singapore":
@@ -4231,7 +4270,7 @@ if page == "Page 4 - Technical Chart":
                 "Data source",
                 ["Auto", "Yahoo Finance", "EODHD", "Alpha Vantage"],
                 index=0,
-                help="Auto = Yahoo, then EODHD, then Alpha Vantage. "
+                help="Auto = EODHD, then Yahoo, then Alpha Vantage. "
                      "EODHD/Alpha Vantage need their API key in secrets.toml."
             )
         else:
@@ -4239,7 +4278,7 @@ if page == "Page 4 - Technical Chart":
                 "Data source",
                 ["Auto", "Yahoo Finance", "Stooq", "EODHD", "Alpha Vantage"],
                 index=0,
-                help="Auto = Yahoo, then Stooq, then Alpha Vantage. "
+                help="Auto = EODHD, then Yahoo, then Stooq, then Alpha Vantage. "
                      "EODHD/Alpha Vantage need their API key in secrets.toml."
             )
 
@@ -4327,6 +4366,220 @@ def pct_format(x):
 
 
 @st.cache_data(ttl=3600)
+
+# ============================================================
+# FMP Fundamental Data Provider
+# ============================================================
+
+def convert_to_fmp_symbol(ticker, market_name=None):
+    """
+    Convert app ticker to FMP ticker format.
+    FMP support varies by plan/exchange.
+
+    US:
+    TSLA -> TSLA
+
+    Malaysia:
+    1155.KL -> 1155.KL
+
+    Singapore:
+    D05.SI -> D05.SI
+    """
+    ticker = str(ticker).strip().upper()
+
+    # Keep Yahoo-style suffixes first; FMP often accepts exchange suffixes.
+    return ticker
+
+
+@st.cache_data(ttl=3600)
+def get_fmp_profile(ticker, market_name=None):
+    api_key = get_secret_value("FMP_API_KEY")
+
+    if not api_key:
+        return {}
+
+    try:
+        symbol = convert_to_fmp_symbol(ticker, market_name)
+        url = f"https://financialmodelingprep.com/api/v3/profile/{symbol}"
+        params = {"apikey": api_key}
+        r = requests.get(url, params=params, timeout=15)
+
+        if r.status_code != 200:
+            return {}
+
+        data = r.json()
+
+        if isinstance(data, list) and len(data) > 0:
+            return data[0] or {}
+
+        return {}
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=3600)
+def get_fmp_quote(ticker, market_name=None):
+    api_key = get_secret_value("FMP_API_KEY")
+
+    if not api_key:
+        return {}
+
+    try:
+        symbol = convert_to_fmp_symbol(ticker, market_name)
+        url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}"
+        params = {"apikey": api_key}
+        r = requests.get(url, params=params, timeout=15)
+
+        if r.status_code != 200:
+            return {}
+
+        data = r.json()
+
+        if isinstance(data, list) and len(data) > 0:
+            return data[0] or {}
+
+        return {}
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=3600)
+def get_fmp_ratios_ttm(ticker, market_name=None):
+    api_key = get_secret_value("FMP_API_KEY")
+
+    if not api_key:
+        return {}
+
+    try:
+        symbol = convert_to_fmp_symbol(ticker, market_name)
+        url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{symbol}"
+        params = {"apikey": api_key}
+        r = requests.get(url, params=params, timeout=15)
+
+        if r.status_code != 200:
+            return {}
+
+        data = r.json()
+
+        if isinstance(data, list) and len(data) > 0:
+            return data[0] or {}
+
+        return {}
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=3600)
+def get_fmp_financial_growth(ticker, market_name=None):
+    api_key = get_secret_value("FMP_API_KEY")
+
+    if not api_key:
+        return {}
+
+    try:
+        symbol = convert_to_fmp_symbol(ticker, market_name)
+        url = f"https://financialmodelingprep.com/api/v3/financial-growth/{symbol}"
+        params = {"period": "annual", "limit": 1, "apikey": api_key}
+        r = requests.get(url, params=params, timeout=15)
+
+        if r.status_code != 200:
+            return {}
+
+        data = r.json()
+
+        if isinstance(data, list) and len(data) > 0:
+            return data[0] or {}
+
+        return {}
+    except Exception:
+        return {}
+
+
+def merge_fmp_into_info(ticker, market_name, yahoo_info):
+    """
+    Merge FMP profile/quote/ratio/growth into Yahoo-like info dict.
+    Yahoo remains fallback, FMP becomes preferred when available.
+    """
+    info = dict(yahoo_info or {})
+
+    profile = get_fmp_profile(ticker, market_name)
+    quote = get_fmp_quote(ticker, market_name)
+    ratios = get_fmp_ratios_ttm(ticker, market_name)
+    growth = get_fmp_financial_growth(ticker, market_name)
+
+    if quote:
+        # Price / market data
+        if quote.get("price") is not None:
+            info["currentPrice"] = quote.get("price")
+            info["regularMarketPrice"] = quote.get("price")
+
+        if quote.get("marketCap") is not None:
+            info["marketCap"] = quote.get("marketCap")
+
+        if quote.get("pe") is not None:
+            info["trailingPE"] = quote.get("pe")
+
+        if quote.get("eps") is not None:
+            info["trailingEps"] = quote.get("eps")
+
+        if quote.get("earningsAnnouncement") is not None:
+            info["earningsDate"] = quote.get("earningsAnnouncement")
+
+    if profile:
+        if profile.get("companyName"):
+            info["longName"] = profile.get("companyName")
+
+        if profile.get("industry"):
+            info["industry"] = profile.get("industry")
+
+        if profile.get("sector"):
+            info["sector"] = profile.get("sector")
+
+        if profile.get("description"):
+            info["longBusinessSummary"] = profile.get("description")
+
+        if profile.get("beta") is not None:
+            info["beta"] = profile.get("beta")
+
+        if profile.get("priceToBookRatio") is not None:
+            info["priceToBook"] = profile.get("priceToBookRatio")
+
+    if ratios:
+        # FMP ratio names can vary slightly by endpoint version.
+        if ratios.get("peRatioTTM") is not None:
+            info["trailingPE"] = ratios.get("peRatioTTM")
+
+        if ratios.get("priceToBookRatioTTM") is not None:
+            info["priceToBook"] = ratios.get("priceToBookRatioTTM")
+
+        if ratios.get("grossProfitMarginTTM") is not None:
+            info["grossMargins"] = ratios.get("grossProfitMarginTTM")
+
+        if ratios.get("operatingProfitMarginTTM") is not None:
+            info["operatingMargins"] = ratios.get("operatingProfitMarginTTM")
+
+        if ratios.get("netProfitMarginTTM") is not None:
+            info["profitMargins"] = ratios.get("netProfitMarginTTM")
+
+        if ratios.get("debtEquityRatioTTM") is not None:
+            info["debtToEquity"] = ratios.get("debtEquityRatioTTM")
+
+    # Put growth values into custom keys used by Page 2 scoring if available.
+    if growth:
+        info["fmpRevenueGrowth"] = growth.get("revenueGrowth")
+        info["fmpEpsGrowth"] = growth.get("epsgrowth")
+        info["fmpNetIncomeGrowth"] = growth.get("netIncomeGrowth")
+        info["fmpFreeCashFlowGrowth"] = growth.get("freeCashFlowGrowth")
+
+    # Data source label
+    if profile or quote or ratios or growth:
+        info["fundamentalDataSource"] = "FMP + Yahoo fallback"
+    else:
+        info["fundamentalDataSource"] = "Yahoo fallback"
+
+    return info
+
+
 def get_yfinance_info(ticker):
     try:
         tk = yf.Ticker(ticker)
@@ -4798,7 +5051,7 @@ if page == "Page 2 - Research Analyzer":
         else:
             st.subheader(f"{research_ticker} | {get_stock_name(research_ticker)}")
 
-            info = get_yfinance_info(research_ticker)
+            info = get_yfinance_info(research_ticker, research_market)
             financials, balance_sheet, cashflow = get_yfinance_financials(research_ticker)
 
             benchmark_used, benchmark_df = get_benchmark_data(research_market, period="2y", min_rows=120)
@@ -4893,6 +5146,7 @@ if page == "Page 2 - Research Analyzer":
                 {"Metric": "Profit Margin", "Value": pct_format(metrics.get("profit_margin"))},
                 {"Metric": "Target Source", "Value": metrics.get("target_source", "-")},
                 {"Metric": "Recommendation Source", "Value": metrics.get("recommendation_source", "-")},
+                {"Metric": "Fundamental Data Source", "Value": info.get("fundamentalDataSource", "Yahoo fallback")},
             ])
 
             st.dataframe(snapshot, use_container_width=True, hide_index=True)
@@ -5094,7 +5348,7 @@ def get_research_score_for_portfolio(ticker, market_name, technical_result=None)
     Uses Page 2 fundamental engine if data available.
     """
     try:
-        info = get_yfinance_info(ticker)
+        info = get_yfinance_info(ticker, market_name)
         financials, balance_sheet, cashflow = get_yfinance_financials(ticker)
 
         score_parts, notes, metrics = score_research_fundamentals(
