@@ -23,17 +23,49 @@ st.markdown(
         background-color: #0F172A;
     }
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 1.2rem;
         padding-bottom: 2rem;
+        max-width: 1500px;
     }
     h1, h2, h3 {
         color: #F8FAFC;
+        letter-spacing: -0.02em;
     }
     .stMetric {
-        background: #111827;
-        padding: 12px;
-        border-radius: 12px;
-        border: 1px solid #1F2937;
+        background: linear-gradient(135deg, #111827 0%, #1E293B 100%);
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid #334155;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+    }
+    div[data-testid="stDataFrame"] {
+        border-radius: 14px;
+        border: 1px solid #334155;
+        overflow: hidden;
+    }
+    .pro-card {
+        background: linear-gradient(135deg, #111827 0%, #1E293B 100%);
+        border: 1px solid #334155;
+        border-radius: 16px;
+        padding: 18px;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+    }
+    .small-muted {
+        color: #94A3B8;
+        font-size: 0.9rem;
+    }
+    .decision-buy {
+        color: #22C55E;
+        font-weight: 900;
+    }
+    .decision-watch {
+        color: #38BDF8;
+        font-weight: 900;
+    }
+    .decision-avoid {
+        color: #EF4444;
+        font-weight: 900;
     }
     </style>
     """,
@@ -573,6 +605,173 @@ def get_final_view(score):
     return "Weak"
 
 
+def get_trend_regime(close, ma20, ma50, ma200):
+    close = safe_float(close)
+    ma20 = safe_float(ma20)
+    ma50 = safe_float(ma50)
+    ma200 = safe_float(ma200)
+
+    if close is None:
+        return "No Data"
+
+    if ma20 and ma50 and ma200 and close > ma20 > ma50 > ma200:
+        return "Bullish Trend"
+    if ma20 and ma50 and ma200 and close < ma20 < ma50 < ma200:
+        return "Bearish Trend"
+    if ma50 and ma200 and close > ma50 and ma50 > ma200:
+        return "Uptrend"
+    if ma50 and ma200 and close < ma50 and ma50 < ma200:
+        return "Downtrend"
+    return "Sideways / Mixed"
+
+
+def get_momentum_status(rsi, macd_hist, macd_hist_change):
+    rsi = safe_float(rsi)
+    macd_hist = safe_float(macd_hist)
+    macd_hist_change = safe_float(macd_hist_change)
+
+    if rsi is None:
+        return "No Data"
+    if rsi > 78:
+        return "Overbought"
+    if rsi < 30:
+        return "Oversold / Weak"
+    if macd_hist is not None and macd_hist_change is not None:
+        if macd_hist > 0 and macd_hist_change > 0:
+            return "Improving"
+        if macd_hist < 0 and macd_hist_change < 0:
+            return "Weakening"
+    if 45 <= rsi <= 65:
+        return "Healthy"
+    return "Neutral"
+
+
+def get_volume_signal(rel_volume, cmf):
+    rel_volume = safe_float(rel_volume)
+    cmf = safe_float(cmf)
+
+    if rel_volume is None:
+        return "No Data"
+    if rel_volume >= 1.5 and cmf is not None and cmf > 0.05:
+        return "Accumulation"
+    if rel_volume >= 1.5 and cmf is not None and cmf < -0.05:
+        return "Distribution"
+    if rel_volume >= 1.5:
+        return "High Activity"
+    if rel_volume >= 1.1:
+        return "Above Average"
+    return "Normal"
+
+
+def get_relative_strength_label(relative_strength):
+    relative_strength = safe_float(relative_strength)
+    if relative_strength is None:
+        return "Benchmark N/A"
+    if relative_strength > 0.08:
+        return "Strong Outperform"
+    if relative_strength > 0.02:
+        return "Outperform"
+    if relative_strength < -0.08:
+        return "Strong Underperform"
+    if relative_strength < -0.02:
+        return "Underperform"
+    return "In Line"
+
+
+def get_entry_zone(close, support, resistance, rsi):
+    close = safe_float(close)
+    support = safe_float(support)
+    resistance = safe_float(resistance)
+    rsi = safe_float(rsi)
+
+    if close is None or support is None or resistance is None:
+        return "No Data"
+
+    price_range = resistance - support
+    if price_range <= 0:
+        return "No Data"
+
+    position = (close - support) / price_range
+
+    if rsi is not None and rsi > 78:
+        return "Too Extended"
+    if position <= 0.25:
+        return "Near Support"
+    if position >= 0.80:
+        return "Near Resistance"
+    if close >= resistance * 0.995:
+        return "Breakout Watch"
+    return "Middle Range"
+
+
+def get_fund_manager_view(base_score, practical_score, risk_reward, trend_regime, smart_signal):
+    base_score = safe_float(base_score, 0)
+    practical_score = safe_float(practical_score, 0)
+    risk_reward = safe_float(risk_reward, 0)
+    trend_regime = str(trend_regime)
+    smart_signal = str(smart_signal)
+
+    if base_score >= 15 and practical_score >= 24 and risk_reward >= 1.5 and "Buying" in smart_signal:
+        return "Accumulate"
+    if base_score >= 10 and practical_score >= 16 and "Bearish" not in trend_regime:
+        return "Watch / Selective Buy"
+    if practical_score <= 7 or "Selling" in smart_signal:
+        return "Avoid / Reduce"
+    if "Too Extended" in trend_regime:
+        return "Avoid Chasing"
+    return "Hold / Monitor"
+
+
+def get_stop_loss(close, support, atr, market_name):
+    close = safe_float(close)
+    support = safe_float(support)
+    atr = safe_float(atr)
+    if close is None:
+        return None
+    candidates = []
+    if support:
+        candidates.append(support * 0.985)
+    if atr:
+        candidates.append(close - 1.5 * atr)
+    if not candidates:
+        return None
+    value = max([c for c in candidates if c is not None])
+    return round(value, 3 if market_name in ["Malaysia", "Singapore"] else 2)
+
+
+def get_target_zone(close, resistance, atr, market_name):
+    close = safe_float(close)
+    resistance = safe_float(resistance)
+    atr = safe_float(atr)
+    if close is None:
+        return None
+    candidates = []
+    if resistance:
+        candidates.append(resistance)
+    if atr:
+        candidates.append(close + 2 * atr)
+    if not candidates:
+        return None
+    value = min([c for c in candidates if c is not None])
+    return round(value, 3 if market_name in ["Malaysia", "Singapore"] else 2)
+
+
+def professional_action(view, entry_zone, risk_reward):
+    view = str(view)
+    entry_zone = str(entry_zone)
+    rr = safe_float(risk_reward, 0)
+
+    if view == "Accumulate" and entry_zone in ["Near Support", "Breakout Watch"] and rr >= 1.5:
+        return "Buy / Add on Setup"
+    if "Watch" in view:
+        return "Watch for Pullback"
+    if "Avoid" in view or "Reduce" in view:
+        return "Avoid / Reduce"
+    if entry_zone == "Too Extended":
+        return "Do Not Chase"
+    return "Hold / Monitor"
+
+
 def get_benchmark_data(market_name):
     if market_name == "Malaysia":
         candidates = ["^KLSE", "1155.KL"]
@@ -710,20 +909,45 @@ def analyse_stock(ticker, market_name, benchmark_df=None):
     buy_sell_safety = get_buy_sell_safety(base_score, practical_score, rsi, risk_reward)
     smart_signal = get_smart_money_signal(smart_score)
 
+    trend_regime = get_trend_regime(close, ma20, ma50, ma200)
+    momentum_status = get_momentum_status(rsi, macd_hist, macd_hist_change)
+    volume_signal = get_volume_signal(rel_volume, cmf)
+    relative_strength_label = get_relative_strength_label(relative_strength)
+    entry_zone = get_entry_zone(close, support, resistance, rsi)
+    fund_manager_view = get_fund_manager_view(
+        base_score,
+        practical_score,
+        risk_reward,
+        trend_regime,
+        smart_signal
+    )
+    stop_loss = get_stop_loss(close, support, atr, market_name)
+    target_zone = get_target_zone(close, resistance, atr, market_name)
+    action = professional_action(fund_manager_view, entry_zone, risk_reward)
+
     price_decimal = 3 if market_name in ["Malaysia", "Singapore"] else 2
 
     return {
         "Ticker": ticker,
         "Stock Name": get_stock_name(ticker),
         "Close": round(close, price_decimal),
-        "Base Score": base_score,
-        "Practical Score": practical_score,
-        "Buy/Sell Safety": buy_sell_safety,
-        "Final View": get_final_view(base_score),
+        "Trend Regime": trend_regime,
+        "Momentum Status": momentum_status,
+        "Volume Signal": volume_signal,
         "Smart Money": smart_signal,
+        "Relative Strength": relative_strength_label,
         "Support": round(support, price_decimal) if support else None,
         "Resistance": round(resistance, price_decimal) if resistance else None,
         "Risk/Reward": round(risk_reward, 2) if risk_reward is not None else None,
+        "Entry Zone": entry_zone,
+        "Stop Loss": stop_loss,
+        "Target Zone": target_zone,
+        "Base Score": base_score,
+        "Practical Score": practical_score,
+        "Fund Manager View": fund_manager_view,
+        "Action": action,
+        "Buy/Sell Safety": buy_sell_safety,
+        "Final View": get_final_view(base_score),
         "Upside %": round(upside_pct, 2) if upside_pct is not None else None,
         "Risk %": round(risk_pct, 2) if risk_pct is not None else None,
         "RSI": round(rsi, 2) if rsi is not None else None,
@@ -1086,7 +1310,7 @@ def style_score_table(df):
         if col in df.columns:
             styled = styled.map(color_score, subset=[col])
 
-    for col in ["Buy/Sell Safety", "Action", "Final View"]:
+    for col in ["Buy/Sell Safety", "Action", "Final View", "Fund Manager View", "Trend Regime", "Momentum Status", "Smart Money"]:
         if col in df.columns:
             styled = styled.map(color_action, subset=[col])
 
@@ -1116,6 +1340,45 @@ page = st.sidebar.radio(
     ]
 )
 
+
+def show_scanner_kpis(df):
+    if df is None or df.empty:
+        return
+
+    total = len(df)
+    accumulate = (df["Fund Manager View"] == "Accumulate").sum() if "Fund Manager View" in df.columns else 0
+    watch = df["Fund Manager View"].astype(str).str.contains("Watch", na=False).sum() if "Fund Manager View" in df.columns else 0
+    avoid = df["Fund Manager View"].astype(str).str.contains("Avoid|Reduce", na=False).sum() if "Fund Manager View" in df.columns else 0
+    avg_score = df["Base Score"].mean() if "Base Score" in df.columns else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Stocks Scanned", total)
+    c2.metric("Accumulate Candidates", int(accumulate))
+    c3.metric("Watchlist Candidates", int(watch))
+    c4.metric("Average Base Score", f"{avg_score:.1f}")
+
+
+def show_research_score_guide():
+    with st.expander("Professional Score Guide"):
+        st.write(
+            """
+            **Portfolio Health Score**
+            - 80–100: Strong holding / add on pullback
+            - 65–79: Healthy hold
+            - 50–64: Monitor / selective
+            - 35–49: Weak / review
+            - 0–34: High risk / avoid add
+
+            **Fund Manager View**
+            - Accumulate: Strong technical + practical setup
+            - Watch / Selective Buy: Positive setup but wait for confirmation/pullback
+            - Hold / Monitor: No urgent action
+            - Avoid / Reduce: Weak or risky setup
+            """
+        )
+
+
+
 # ============================================================
 # Page 1 - Market Scanner
 # ============================================================
@@ -1123,7 +1386,7 @@ page = st.sidebar.radio(
 if page == "Page 1 - Market Scanner":
     render_header(
         "Page 1 — Market Scanner",
-        "Find potential candidates using price trend, volume, smart money, support/resistance and risk/reward."
+        "Professional scanner view: trend regime, momentum, volume confirmation, smart money, support/resistance and fund-manager style action."
     )
 
     col1, col2, col3 = st.columns(3)
@@ -1168,12 +1431,29 @@ if page == "Page 1 - Market Scanner":
             df = pd.DataFrame(results)
             df = df.sort_values(["Practical Score", "Base Score"], ascending=False)
 
+            show_scanner_kpis(df)
+
+            preferred_cols = [
+                "Ticker", "Stock Name", "Close",
+                "Trend Regime", "Momentum Status", "Volume Signal",
+                "Smart Money", "Relative Strength",
+                "Support", "Resistance", "Risk/Reward",
+                "Entry Zone", "Stop Loss", "Target Zone",
+                "Base Score", "Practical Score",
+                "Fund Manager View", "Action",
+                "Buy/Sell Safety", "Final View",
+                "RSI", "ADX", "Rel Volume"
+            ]
+            existing_cols = [c for c in preferred_cols if c in df.columns]
+            other_cols = [c for c in df.columns if c not in existing_cols]
+            df = df[existing_cols + other_cols]
+
             df["Stock"] = df["Ticker"] + " | " + df["Stock Name"]
             df = df.set_index("Stock")
             df = df.drop(columns=["Ticker", "Stock Name"], errors="ignore")
 
-            st.subheader("Scanner Result")
-            st.dataframe(style_score_table(df), use_container_width=True, height=560)
+            st.subheader("Professional Scanner Result")
+            st.dataframe(style_score_table(df), use_container_width=True, height=600)
 
             csv = df.reset_index().to_csv(index=False).encode("utf-8")
             st.download_button("Download Scanner CSV", csv, "scanner_result.csv", "text/csv")
@@ -1185,7 +1465,7 @@ if page == "Page 1 - Market Scanner":
 if page == "Page 2 - Research Analyzer":
     render_header(
         "Page 2 — Research Analyzer",
-        "Analyze one stock using business quality, fundamentals, valuation, debt strength and technical timing."
+        "Equity-research style view: business quality, fundamentals, financial strength, valuation, technical timing and final rating."
     )
 
     col1, col2 = st.columns(2)
@@ -1244,18 +1524,51 @@ if page == "Page 2 - Research Analyzer":
         st.dataframe(snap, use_container_width=True, hide_index=True)
 
         if scanner:
-            st.subheader("Technical Timing")
+            st.subheader("Professional Technical Timing")
             tech_df = pd.DataFrame([{
                 "Close": scanner.get("Close"),
-                "Base Score": scanner.get("Base Score"),
-                "Practical Score": scanner.get("Practical Score"),
-                "Buy/Sell Safety": scanner.get("Buy/Sell Safety"),
+                "Trend Regime": scanner.get("Trend Regime"),
+                "Momentum Status": scanner.get("Momentum Status"),
+                "Volume Signal": scanner.get("Volume Signal"),
                 "Smart Money": scanner.get("Smart Money"),
+                "Entry Zone": scanner.get("Entry Zone"),
                 "Support": scanner.get("Support"),
                 "Resistance": scanner.get("Resistance"),
                 "Risk/Reward": scanner.get("Risk/Reward"),
+                "Stop Loss": scanner.get("Stop Loss"),
+                "Target Zone": scanner.get("Target Zone"),
+                "Fund Manager View": scanner.get("Fund Manager View"),
+                "Action": scanner.get("Action"),
             }])
             st.dataframe(style_score_table(tech_df), use_container_width=True, hide_index=True)
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown(
+                    f"""
+                    <div class="pro-card">
+                    <h4>Institutional View</h4>
+                    <p><b>Trend:</b> {scanner.get("Trend Regime")}</p>
+                    <p><b>Momentum:</b> {scanner.get("Momentum Status")}</p>
+                    <p><b>Smart Money:</b> {scanner.get("Smart Money")}</p>
+                    <p><b>Fund Manager View:</b> {scanner.get("Fund Manager View")}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            with col_b:
+                st.markdown(
+                    f"""
+                    <div class="pro-card">
+                    <h4>Trade Planning Levels</h4>
+                    <p><b>Entry Zone:</b> {scanner.get("Entry Zone")}</p>
+                    <p><b>Support:</b> {scanner.get("Support")}</p>
+                    <p><b>Resistance:</b> {scanner.get("Resistance")}</p>
+                    <p><b>Risk/Reward:</b> {scanner.get("Risk/Reward")}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
         st.subheader("Business Summary")
         summary = metrics.get("summary")
@@ -1362,7 +1675,7 @@ def review_portfolio(portfolio_df):
 if page == "Page 3 - Portfolio Review":
     render_header(
         "Page 3 — Portfolio Review",
-        "Review holdings/watchlist using portfolio health, entry timing, research score, smart money and key support/resistance."
+        "Portfolio-manager style review: health score, entry timing, research quality, smart money, key levels and position action."
     )
 
     with st.expander("Score Reference"):
@@ -1406,15 +1719,18 @@ if page == "Page 3 - Portfolio Review":
                 st.error("No portfolio review data returned.")
             else:
                 st.subheader("Portfolio Review Result")
-                st.dataframe(style_score_table(result), use_container_width=True, height=560)
 
                 total_value = result["Position Value"].dropna().sum() if "Position Value" in result.columns else 0
                 total_pl = result["P/L Value"].dropna().sum() if "P/L Value" in result.columns else 0
+                avg_health = result["Portfolio Health Score"].dropna().mean() if "Portfolio Health Score" in result.columns else 0
 
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Total Position Value", f"{total_value:,.2f}" if total_value else "-")
                 c2.metric("Total P/L", f"{total_pl:,.2f}" if total_pl else "-")
-                c3.metric("Stocks Reviewed", len(result))
+                c3.metric("Average Health Score", f"{avg_health:.1f}" if avg_health else "-")
+                c4.metric("Stocks Reviewed", len(result))
+
+                st.dataframe(style_score_table(result), use_container_width=True, height=600)
 
                 csv = result.reset_index().to_csv(index=False).encode("utf-8")
                 st.download_button("Download Portfolio Review CSV", csv, "portfolio_review.csv", "text/csv")
