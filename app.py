@@ -1,4 +1,4 @@
-
+v
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -216,6 +216,33 @@ SINGAPORE_TICKER_ALIASES = {
 }
 
 STOCK_NAME_MAP = {
+    "PG": "Procter & Gamble",
+    "KO": "Coca-Cola",
+    "PEP": "PepsiCo",
+    "MCD": "McDonald's",
+    "JNJ": "Johnson & Johnson",
+    "UNH": "UnitedHealth",
+    "XOM": "Exxon Mobil",
+    "CVX": "Chevron",
+    "CRM": "Salesforce",
+    "6033.KL": "Petronas Gas",
+    "5681.KL": "Petronas Dagangan",
+    "3816.KL": "MISC",
+    "4707.KL": "Nestle Malaysia",
+    "5819.KL": "Hong Leong Bank",
+    "1066.KL": "RHB Bank",
+    "1082.KL": "Hong Leong Financial",
+    "3182.KL": "Genting",
+    "4715.KL": "Genting Malaysia",
+    "5225.KL": "IHH Healthcare",
+    "1961.KL": "IOI Corp",
+    "2445.KL": "KLK",
+    "5285.KL": "Sime Darby Plantation",
+    "C38U.SI": "CapitaLand Integrated Commercial Trust",
+    "A17U.SI": "CapitaLand Ascendas REIT",
+    "C09.SI": "City Developments",
+    "G13.SI": "Genting Singapore",
+    "J36.SI": "Jardine Matheson",
     "TSLA": "Tesla",
     "NVDA": "Nvidia",
     "AAPL": "Apple",
@@ -1247,20 +1274,56 @@ def portfolio_action(score):
 # ============================================================
 
 US_UNIVERSE = [
-    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "AMD", "NFLX",
-    "AVGO", "JPM", "V", "MA", "COST", "WMT", "HD", "PLTR", "COIN", "MSTR",
-    "ASAN", "SNAP", "SOFI", "HOOD", "RIVN", "UBER"
+    # US blue-chip / mega-cap examples
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO",
+    "JPM", "V", "MA", "COST", "WMT", "HD", "PG", "KO", "PEP",
+    "MCD", "JNJ", "UNH", "XOM", "CVX", "NFLX", "AMD", "CRM"
 ]
 
 MALAYSIA_UNIVERSE = [
-    "1155.KL", "1023.KL", "1295.KL", "5347.KL", "6947.KL", "4863.KL",
-    "4456.KL", "7113.KL", "5168.KL", "0128.KL", "0097.KL", "0166.KL",
-    "5398.KL", "5211.KL", "5296.KL", "7277.KL", "5199.KL", "5210.KL"
+    # Malaysia blue-chip / large-cap examples
+    "1155.KL",  # Maybank
+    "1023.KL",  # CIMB
+    "1295.KL",  # Public Bank
+    "5347.KL",  # Tenaga
+    "6947.KL",  # CelcomDigi
+    "4863.KL",  # Telekom Malaysia
+    "6033.KL",  # Petronas Gas
+    "5681.KL",  # Petronas Dagangan
+    "3816.KL",  # MISC
+    "4707.KL",  # Nestle Malaysia
+    "5819.KL",  # Hong Leong Bank
+    "1066.KL",  # RHB Bank
+    "1082.KL",  # Hong Leong Financial
+    "3182.KL",  # Genting
+    "4715.KL",  # Genting Malaysia
+    "5398.KL",  # Gamuda
+    "5211.KL",  # Sunway
+    "5296.KL",  # MR DIY
+    "5225.KL",  # IHH Healthcare
+    "1961.KL",  # IOI Corp
+    "2445.KL",  # KLK
+    "5285.KL",  # Sime Darby Plantation
 ]
 
 SINGAPORE_UNIVERSE = [
-    "D05.SI", "O39.SI", "U11.SI", "Z74.SI", "C6L.SI", "S68.SI",
-    "BN4.SI", "F34.SI", "S58.SI", "U96.SI"
+    # Singapore blue-chip / STI-style examples
+    "D05.SI",  # DBS
+    "O39.SI",  # OCBC
+    "U11.SI",  # UOB
+    "Z74.SI",  # Singtel
+    "C6L.SI",  # Singapore Airlines
+    "S68.SI",  # SGX
+    "BN4.SI",  # Keppel
+    "F34.SI",  # Wilmar
+    "S58.SI",  # SATS
+    "U96.SI",  # Sembcorp
+    "S63.SI",  # ST Engineering
+    "C38U.SI", # CapitaLand Integrated Commercial Trust
+    "A17U.SI", # CapitaLand Ascendas REIT
+    "C09.SI",  # City Developments
+    "G13.SI",  # Genting Singapore
+    "J36.SI",  # Jardine Matheson
 ]
 
 
@@ -1402,11 +1465,11 @@ if page == "Page 1 - Market Scanner":
 
     if mode == "Custom":
         if market == "US":
-            example_tickers = "AAPL,MSFT,NVDA,TSLA,AMZN,GOOGL,META"
+            example_tickers = "AAPL,MSFT,NVDA,AMZN,GOOGL,META,JPM,V,COST"
         elif market == "Malaysia":
-            example_tickers = "MAYBANK,CIMB,TENAGA,PBBANK,GAMUDA,SUNWAY,MRDIY"
+            example_tickers = "MAYBANK,CIMB,PBBANK,TENAGA,PETGAS,HLBANK,IHH"
         else:
-            example_tickers = "DBS,OCBC,UOB,SINGTEL,SIA,SGX,KEPPEL"
+            example_tickers = "DBS,OCBC,UOB,SINGTEL,SIA,SGX,KEPPEL,STENGINEERING"
 
         custom_text = st.text_area(
             "Enter tickers / names",
@@ -1422,9 +1485,9 @@ if page == "Page 1 - Market Scanner":
     with st.expander("Example tickers by market"):
         st.write(
             """
-            **US:** AAPL, MSFT, NVDA, TSLA, AMZN, GOOGL, META  
-            **Malaysia:** MAYBANK, CIMB, TENAGA, PBBANK, GAMUDA, SUNWAY, MRDIY  
-            **Singapore:** DBS, OCBC, UOB, SINGTEL, SIA, SGX, KEPPEL
+            **US blue chips:** AAPL, MSFT, NVDA, AMZN, GOOGL, META, JPM, V, COST  
+            **Malaysia blue chips:** MAYBANK, CIMB, PBBANK, TENAGA, PETGAS, HLBANK, IHH  
+            **Singapore blue chips:** DBS, OCBC, UOB, SINGTEL, SIA, SGX, KEPPEL, ST Engineering
             """
         )
 
@@ -1495,7 +1558,7 @@ if page == "Page 2 - Research Analyzer":
         raw_ticker = st.text_input(
             "Ticker / stock name",
             default_ticker,
-            help="US examples: AAPL, MSFT, NVDA. Malaysia examples: MAYBANK, CIMB, TENAGA. Singapore examples: DBS, OCBC, UOB."
+            help="US examples: AAPL, MSFT, NVDA, JPM. Malaysia examples: MAYBANK, CIMB, TENAGA, PETGAS. Singapore examples: DBS, OCBC, UOB, SINGTEL."
         )
 
     ticker = normalize_user_ticker(raw_ticker, market)
@@ -1717,9 +1780,9 @@ if page == "Page 3 - Portfolio Review":
         st.caption("Format: Ticker, Buy Price, Quantity. Examples change based on selected market.")
 
     if market == "US":
-        default_text = "AAPL,190,10\nMSFT,420,5\nNVDA,900,2\nTSLA,250,5"
+        default_text = "AAPL,190,10\nMSFT,420,5\nNVDA,900,2\nJPM,200,5"
     elif market == "Malaysia":
-        default_text = "MAYBANK,9.80,1000\nCIMB,7.00,1000\nTENAGA,14.00,500\nGAMUDA,5.00,1000"
+        default_text = "MAYBANK,9.80,1000\nCIMB,7.00,1000\nTENAGA,14.00,500\nPBBANK,4.50,1000"
     else:
         default_text = "DBS,38,100\nOCBC,15,100\nUOB,30,100\nSINGTEL,3.00,1000"
 
