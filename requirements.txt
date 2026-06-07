@@ -2,8 +2,7 @@ streamlit
 yfinance
 pandas
 numpy
-plotly
-openpyxl
 requests
+openpyxl
 lxml
 html5lib
