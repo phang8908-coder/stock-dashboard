@@ -1401,15 +1401,32 @@ if page == "Page 1 - Market Scanner":
         max_scan = st.slider("Max stocks to scan", 5, 80, 25)
 
     if mode == "Custom":
+        if market == "US":
+            example_tickers = "AAPL,MSFT,NVDA,TSLA,AMZN,GOOGL,META"
+        elif market == "Malaysia":
+            example_tickers = "MAYBANK,CIMB,TENAGA,PBBANK,GAMUDA,SUNWAY,MRDIY"
+        else:
+            example_tickers = "DBS,OCBC,UOB,SINGTEL,SIA,SGX,KEPPEL"
+
         custom_text = st.text_area(
             "Enter tickers / names",
-            "TSLA,NVDA,ASAN" if market == "US" else "DNEX,4456,MAYBANK"
+            example_tickers,
+            help="Examples are based on common large-cap stocks for the selected market."
         )
         tickers = parse_ticker_text(custom_text, market)
     else:
         tickers = get_default_universe(market)
 
     tickers = tickers[:max_scan]
+
+    with st.expander("Example tickers by market"):
+        st.write(
+            """
+            **US:** AAPL, MSFT, NVDA, TSLA, AMZN, GOOGL, META  
+            **Malaysia:** MAYBANK, CIMB, TENAGA, PBBANK, GAMUDA, SUNWAY, MRDIY  
+            **Singapore:** DBS, OCBC, UOB, SINGTEL, SIA, SGX, KEPPEL
+            """
+        )
 
     if st.button("Run Scanner", type="primary"):
         bench_name, benchmark_df = get_benchmark_data(market)
@@ -1474,8 +1491,12 @@ if page == "Page 2 - Research Analyzer":
         market = st.selectbox("Market", ["US", "Malaysia", "Singapore"], key="research_market")
 
     with col2:
-        default_ticker = "TSLA" if market == "US" else ("DNEX" if market == "Malaysia" else "DBS")
-        raw_ticker = st.text_input("Ticker / stock name", default_ticker)
+        default_ticker = "AAPL" if market == "US" else ("MAYBANK" if market == "Malaysia" else "DBS")
+        raw_ticker = st.text_input(
+            "Ticker / stock name",
+            default_ticker,
+            help="US examples: AAPL, MSFT, NVDA. Malaysia examples: MAYBANK, CIMB, TENAGA. Singapore examples: DBS, OCBC, UOB."
+        )
 
     ticker = normalize_user_ticker(raw_ticker, market)
 
@@ -1693,11 +1714,14 @@ if page == "Page 3 - Portfolio Review":
     with col1:
         market = st.selectbox("Default Market", ["US", "Malaysia", "Singapore"], key="portfolio_market")
     with col2:
-        st.caption("Format: Ticker, Buy Price, Quantity")
+        st.caption("Format: Ticker, Buy Price, Quantity. Examples change based on selected market.")
 
-    default_text = "TSLA,430,1\nASAN,8.50,100" if market == "US" else (
-        "DNEX,0.45,10000\nMAYBANK,9.80,1000" if market == "Malaysia" else "DBS,38,100\nOCBC,15,100"
-    )
+    if market == "US":
+        default_text = "AAPL,190,10\nMSFT,420,5\nNVDA,900,2\nTSLA,250,5"
+    elif market == "Malaysia":
+        default_text = "MAYBANK,9.80,1000\nCIMB,7.00,1000\nTENAGA,14.00,500\nGAMUDA,5.00,1000"
+    else:
+        default_text = "DBS,38,100\nOCBC,15,100\nUOB,30,100\nSINGTEL,3.00,1000"
 
     txt = st.text_area("Portfolio / Watchlist", default_text, height=180)
     portfolio_df = build_portfolio_from_text(txt, market)
